@@ -1,0 +1,35 @@
+# Local design memory, roadmap, planning, and session-context documents.
+DESIGN.md
+docs/
+
+# Agent and conversation context that may be useful locally but should not be
+# part of development commits.
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+SOUL.md
+HEARTBEAT.md
+transcripts/
+sessions/
+context/
+.codex/
+.agents/
+
+# Runtime and editor noise.
+.DS_Store
+*.log
+*.tmp
+*.swp
+*.swo
+
+# Common build outputs and dependency folders for future implementations.
+target/
+build/
+dist/
+out/
+.cache/
+coverage/
+node_modules/
+.venv/
+__pycache__/
+*.pyc
