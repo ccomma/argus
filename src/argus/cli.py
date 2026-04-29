@@ -7,6 +7,10 @@ from pathlib import Path
 
 from argus.contracts import ContractSession, QuestionStrategy
 from argus.core import ArgusCore
+from argus.ingestion import ContractEvidenceIngestor, TranscriptIngestor
+from argus.ledger import EventLedger
+from argus.learning import LearningExtractor, LearningLedger, LearningReporter
+from argus.paths import ArgusPaths
 from argus.storage import ContractStorage
 
 
@@ -16,6 +20,10 @@ def main(argv: list[str] | None = None) -> int:
 
     contract = subparsers.add_parser("contract", help="Work contract commands.")
     contract_subparsers = contract.add_subparsers(dest="contract_command", required=True)
+    ledger = subparsers.add_parser("ledger", help="Event ledger commands.")
+    ledger_subparsers = ledger.add_subparsers(dest="ledger_command", required=True)
+    learning = subparsers.add_parser("learning", help="Candidate learning commands.")
+    learning_subparsers = learning.add_subparsers(dest="learning_command", required=True)
 
     draft = contract_subparsers.add_parser("draft", help="Draft a work contract from an intent.")
     draft.add_argument("--intent", required=True)
@@ -53,19 +61,55 @@ def main(argv: list[str] | None = None) -> int:
     render.add_argument("--type", choices=("prd", "roadmap", "research_plan"), default="prd")
     render.add_argument("--store", default=".argus")
 
+    ingest_contract = ledger_subparsers.add_parser("ingest-contract", help="Import contract evidence into the event ledger.")
+    ingest_contract.add_argument("contract_id")
+    ingest_contract.add_argument("--store", default=".argus")
+
+    ingest_transcript = ledger_subparsers.add_parser("ingest-transcript", help="Import a transcript JSONL fixture.")
+    ingest_transcript.add_argument("path")
+    ingest_transcript.add_argument("--store", default=".argus")
+
+    ledger_list = ledger_subparsers.add_parser("list", help="List event ledger records.")
+    ledger_list.add_argument("--store", default=".argus")
+
+    learning_extract = learning_subparsers.add_parser("extract", help="Extract candidate learnings from the event ledger.")
+    learning_extract.add_argument("--store", default=".argus")
+
+    learning_list = learning_subparsers.add_parser("list", help="List candidate learnings.")
+    learning_list.add_argument("--store", default=".argus")
+
+    learning_report = learning_subparsers.add_parser("report", help="Write a local learning report.")
+    learning_report.add_argument("--store", default=".argus")
+
     args = parser.parse_args(argv)
-    if args.command == "contract" and args.contract_command == "draft":
-        return _draft(args)
-    if args.command == "contract" and args.contract_command == "start":
-        return _start(args)
-    if args.command == "contract" and args.contract_command == "evaluate":
-        return _evaluate(args)
-    if args.command == "contract" and args.contract_command == "show":
-        return _show(args)
-    if args.command == "contract" and args.contract_command == "score":
-        return _score(args)
-    if args.command == "contract" and args.contract_command == "render":
-        return _render(args)
+    try:
+        if args.command == "contract" and args.contract_command == "draft":
+            return _draft(args)
+        if args.command == "contract" and args.contract_command == "start":
+            return _start(args)
+        if args.command == "contract" and args.contract_command == "evaluate":
+            return _evaluate(args)
+        if args.command == "contract" and args.contract_command == "show":
+            return _show(args)
+        if args.command == "contract" and args.contract_command == "score":
+            return _score(args)
+        if args.command == "contract" and args.contract_command == "render":
+            return _render(args)
+        if args.command == "ledger" and args.ledger_command == "ingest-contract":
+            return _ledger_ingest_contract(args)
+        if args.command == "ledger" and args.ledger_command == "ingest-transcript":
+            return _ledger_ingest_transcript(args)
+        if args.command == "ledger" and args.ledger_command == "list":
+            return _ledger_list(args)
+        if args.command == "learning" and args.learning_command == "extract":
+            return _learning_extract(args)
+        if args.command == "learning" and args.learning_command == "list":
+            return _learning_list(args)
+        if args.command == "learning" and args.learning_command == "report":
+            return _learning_report(args)
+    except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     parser.error("unknown command")
     return 2
 
@@ -123,8 +167,66 @@ def _render(args: argparse.Namespace) -> int:
     return 0
 
 
+def _ledger_ingest_contract(args: argparse.Namespace) -> int:
+    imported = ContractEvidenceIngestor(_storage(args), _event_ledger(args)).ingest(args.contract_id)
+    _print_json({"imported": imported})
+    return 0
+
+
+def _ledger_ingest_transcript(args: argparse.Namespace) -> int:
+    imported = TranscriptIngestor(_event_ledger(args)).ingest(args.path)
+    _print_json({"imported": imported})
+    return 0
+
+
+def _ledger_list(args: argparse.Namespace) -> int:
+    _print_json([event.to_dict() for event in _event_ledger(args).list_events()])
+    return 0
+
+
+def _learning_extract(args: argparse.Namespace) -> int:
+    items = LearningExtractor().extract(_event_ledger(args).list_events())
+    created = _learning_ledger(args).append_many(items)
+    _print_json({"created": created})
+    return 0
+
+
+def _learning_list(args: argparse.Namespace) -> int:
+    _print_json([item.to_dict() for item in _learning_ledger(args).list_items()])
+    return 0
+
+
+def _learning_report(args: argparse.Namespace) -> int:
+    report = LearningReporter(_reports_dir(args)).write(
+        _event_ledger(args).list_events(),
+        _learning_ledger(args).list_items(),
+    )
+    _print_json({"markdown_path": str(report.markdown_path), "json_path": str(report.json_path)})
+    return 0
+
+
 def _core(args: argparse.Namespace) -> ArgusCore:
-    return ArgusCore(ContractStorage(args.store))
+    return ArgusCore(_storage(args))
+
+
+def _storage(args: argparse.Namespace) -> ContractStorage:
+    return ContractStorage(args.store)
+
+
+def _event_ledger(args: argparse.Namespace) -> EventLedger:
+    return EventLedger(_paths(args).events_ledger)
+
+
+def _learning_ledger(args: argparse.Namespace) -> LearningLedger:
+    return LearningLedger(_paths(args).candidate_learnings)
+
+
+def _reports_dir(args: argparse.Namespace) -> Path:
+    return _paths(args).reports_dir
+
+
+def _paths(args: argparse.Namespace) -> ArgusPaths:
+    return ArgusPaths.from_store(args.store)
 
 
 def _answers_from_args(args: argparse.Namespace) -> dict[str, str]:
