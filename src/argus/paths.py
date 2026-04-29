@@ -23,3 +23,11 @@ class ArgusPaths:
     @property
     def reports_dir(self) -> Path:
         return self.root / "ledger" / "reports"
+
+    @property
+    def asset_inventory(self) -> Path:
+        return self.root / "assets" / "inventory.json"
+
+    @property
+    def asset_reports_dir(self) -> Path:
+        return self.root / "assets" / "reports"

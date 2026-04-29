@@ -9,6 +9,7 @@ CLAUDE.md
 GEMINI.md
 SOUL.md
 HEARTBEAT.md
+!tests/fixtures/assets/rules/AGENTS.md
 transcripts/
 sessions/
 context/

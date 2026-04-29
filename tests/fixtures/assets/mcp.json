@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "browser-tools": {
+      "command": "node",
+      "args": ["server.js"],
+      "env": {
+        "TOKEN": "fixture"
+      }
+    }
+  }
+}

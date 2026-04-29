@@ -1,0 +1,8 @@
+[mcp_servers.context7]
+type = "stdio"
+command = "npx"
+args = ["-y", "@upstash/context7-mcp"]
+
+[mcp_servers.remote-tools]
+type = "streamable_http"
+url = "https://example.invalid/mcp"
