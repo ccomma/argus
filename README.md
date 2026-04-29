@@ -121,6 +121,22 @@ PYTHONPATH=src python3 -m argus.cli learning list
 PYTHONPATH=src python3 -m argus.cli learning report
 ```
 
+Useful Phase 3 commands:
+
+```bash
+PYTHONPATH=src python3 -m argus.cli assets scan --profile local-codex
+PYTHONPATH=src python3 -m argus.cli assets scan \
+  --skill-dir path/to/skills \
+  --plugin-dir path/to/plugins \
+  --mcp-config path/to/mcp.json \
+  --rule-file path/to/AGENTS.md \
+  --script-dir path/to/scripts \
+  --memory-dir path/to/memory
+PYTHONPATH=src python3 -m argus.cli assets list
+PYTHONPATH=src python3 -m argus.cli assets report
+PYTHONPATH=src python3 -m argus.cli assets link-learnings
+```
+
 The local contract workspace stores:
 
 - `contract.json`

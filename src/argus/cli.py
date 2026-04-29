@@ -6,6 +6,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from argus.assets import (
+    AssetReporter,
+    CandidateAssetLinker,
+    CapabilityAssetScanner,
+    CapabilityInventory,
+    AssetScanProfile,
+    local_codex_asset_profile,
+)
 from argus.contracts import ContractSession, QuestionStrategy
 from argus.core import ArgusCore
 from argus.ingestion import ContractEvidenceIngestor, TranscriptIngestor
@@ -25,10 +33,13 @@ def main(argv: list[str] | None = None) -> int:
     ledger_subparsers = ledger.add_subparsers(dest="ledger_command", required=True)
     learning = subparsers.add_parser("learning", help="Candidate learning commands.")
     learning_subparsers = learning.add_subparsers(dest="learning_command", required=True)
+    assets = subparsers.add_parser("assets", help="Capability asset inventory commands.")
+    assets_subparsers = assets.add_subparsers(dest="assets_command", required=True)
 
     _add_contract_commands(contract_subparsers)
     _add_ledger_commands(ledger_subparsers)
     _add_learning_commands(learning_subparsers)
+    _add_asset_commands(assets_subparsers)
 
     args = parser.parse_args(argv)
     return _dispatch(parser, args)
@@ -96,6 +107,32 @@ def _add_learning_commands(subparsers: Any) -> None:
     learning_report.add_argument("--store", default=".argus")
 
 
+def _add_asset_commands(subparsers: Any) -> None:
+    scan = subparsers.add_parser("scan", help="Scan local capability assets into an inventory.")
+    _add_asset_scan_args(scan)
+
+    list_assets = subparsers.add_parser("list", help="List scanned capability assets.")
+    list_assets.add_argument("--store", default=".argus")
+
+    report = subparsers.add_parser("report", help="Write a capability asset scan report.")
+    report.add_argument("--store", default=".argus")
+
+    link = subparsers.add_parser("link-learnings", help="Link candidate learnings to scanned capability assets.")
+    link.add_argument("--store", default=".argus")
+
+
+def _add_asset_scan_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--store", default=".argus")
+    parser.add_argument("--profile", choices=("local-codex",), action="append", default=[])
+    parser.add_argument("--profile-home", default=None)
+    parser.add_argument("--skill-dir", action="append", default=[])
+    parser.add_argument("--plugin-dir", action="append", default=[])
+    parser.add_argument("--mcp-config", action="append", default=[])
+    parser.add_argument("--rule-file", action="append", default=[])
+    parser.add_argument("--script-dir", action="append", default=[])
+    parser.add_argument("--memory-dir", action="append", default=[])
+
+
 def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     handlers = {
         ("contract", "draft"): _draft,
@@ -110,6 +147,10 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         ("learning", "extract"): _learning_extract,
         ("learning", "list"): _learning_list,
         ("learning", "report"): _learning_report,
+        ("assets", "scan"): _assets_scan,
+        ("assets", "list"): _assets_list,
+        ("assets", "report"): _assets_report,
+        ("assets", "link-learnings"): _assets_link_learnings,
     }
     subcommand = getattr(args, f"{args.command}_command")
     try:
@@ -214,6 +255,46 @@ def _learning_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _assets_scan(args: argparse.Namespace) -> int:
+    profile = _asset_scan_profile(args)
+    result = CapabilityAssetScanner().scan(**profile.to_scan_kwargs())
+    _asset_inventory(args).write(result.assets)
+    report = AssetReporter(_asset_reports_dir(args)).write(result.assets, warnings=result.warnings)
+    _print_json(
+        {
+            "assets": len(result.assets),
+            "profiles": args.profile,
+            "warnings": result.warnings,
+            "inventory_path": str(_paths(args).asset_inventory),
+            "report_path": str(report.report_path),
+        }
+    )
+    return 0
+
+
+def _assets_list(args: argparse.Namespace) -> int:
+    _print_json([asset.to_dict() for asset in _asset_inventory(args).list_assets()])
+    return 0
+
+
+def _assets_report(args: argparse.Namespace) -> int:
+    report = AssetReporter(_asset_reports_dir(args)).write(_asset_inventory(args).list_assets())
+    _print_json({"report_path": str(report.report_path)})
+    return 0
+
+
+def _assets_link_learnings(args: argparse.Namespace) -> int:
+    links = CandidateAssetLinker().link(_learning_ledger(args).list_items(), _asset_inventory(args).list_assets())
+    report = AssetReporter(_asset_reports_dir(args)).write(_asset_inventory(args).list_assets(), links=links)
+    _print_json(
+        {
+            "links": len(links),
+            "link_report_path": str(report.link_report_path),
+        }
+    )
+    return 0
+
+
 def _core(args: argparse.Namespace) -> ArgusCore:
     return ArgusCore(_storage(args))
 
@@ -234,6 +315,29 @@ def _reports_dir(args: argparse.Namespace) -> Path:
     return _paths(args).reports_dir
 
 
+def _asset_inventory(args: argparse.Namespace) -> CapabilityInventory:
+    return CapabilityInventory(_paths(args).asset_inventory)
+
+
+def _asset_reports_dir(args: argparse.Namespace) -> Path:
+    return _paths(args).asset_reports_dir
+
+
+def _asset_scan_profile(args: argparse.Namespace) -> AssetScanProfile:
+    profile = AssetScanProfile()
+    for name in args.profile:
+        if name == "local-codex":
+            profile = profile.merged_with(**local_codex_asset_profile(args.profile_home).to_scan_kwargs())
+    return profile.merged_with(
+        skill_dirs=args.skill_dir,
+        plugin_dirs=args.plugin_dir,
+        mcp_configs=args.mcp_config,
+        rule_files=args.rule_file,
+        script_dirs=args.script_dir,
+        memory_dirs=args.memory_dir,
+    )
+
+
 def _paths(args: argparse.Namespace) -> ArgusPaths:
     return ArgusPaths.from_store(args.store)
 
@@ -250,7 +354,7 @@ def _answers_from_args(args: argparse.Namespace) -> dict[str, str]:
     }
 
 
-def _print_json(data: dict) -> None:
+def _print_json(data: Any) -> None:
     print(json.dumps(data, indent=2, sort_keys=True))
 
 
