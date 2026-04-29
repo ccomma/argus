@@ -6,6 +6,8 @@ from hashlib import sha1
 from pathlib import Path
 from typing import Any
 
+from argus.jsonl import AppendOnlyJsonlStore
+
 
 @dataclass(frozen=True)
 class EventRecord:
@@ -81,24 +83,18 @@ class EventRecord:
 class EventLedger:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
+        self._store = AppendOnlyJsonlStore(
+            self.path,
+            serializer=lambda event: event.to_dict(),
+            deserializer=EventRecord.from_dict,
+            identity=lambda event: event.id,
+        )
 
     def append(self, event: EventRecord) -> bool:
-        existing_ids = {existing.id for existing in self.list_events()}
-        if event.id in existing_ids:
-            return False
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(event.to_dict(), sort_keys=True) + "\n")
-        return True
+        return self._store.append(event)
 
     def append_many(self, events: list[EventRecord]) -> int:
-        return sum(1 for event in events if self.append(event))
+        return self._store.append_many(events)
 
     def list_events(self) -> list[EventRecord]:
-        if not self.path.exists():
-            return []
-        return [
-            EventRecord.from_dict(json.loads(line))
-            for line in self.path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
+        return self._store.list_items()

@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 from argus.contracts import ContractSession, QuestionStrategy
 from argus.core import ArgusCore
@@ -25,7 +26,16 @@ def main(argv: list[str] | None = None) -> int:
     learning = subparsers.add_parser("learning", help="Candidate learning commands.")
     learning_subparsers = learning.add_subparsers(dest="learning_command", required=True)
 
-    draft = contract_subparsers.add_parser("draft", help="Draft a work contract from an intent.")
+    _add_contract_commands(contract_subparsers)
+    _add_ledger_commands(ledger_subparsers)
+    _add_learning_commands(learning_subparsers)
+
+    args = parser.parse_args(argv)
+    return _dispatch(parser, args)
+
+
+def _add_contract_commands(subparsers: Any) -> None:
+    draft = subparsers.add_parser("draft", help="Draft a work contract from an intent.")
     draft.add_argument("--intent", required=True)
     draft.add_argument("--mode", choices=("quick", "standard", "strict"), default="standard")
     draft.add_argument("--goal", default="")
@@ -37,76 +47,75 @@ def main(argv: list[str] | None = None) -> int:
     draft.add_argument("--acceptance-criteria", default="")
     draft.add_argument("--store", default=".argus")
 
-    start = contract_subparsers.add_parser("start", help="Interactively draft a work contract.")
+    start = subparsers.add_parser("start", help="Interactively draft a work contract.")
     start.add_argument("--intent", required=True)
     start.add_argument("--mode", choices=("quick", "standard", "strict"), default="standard")
     start.add_argument("--store", default=".argus")
 
-    evaluate = contract_subparsers.add_parser("evaluate", help="Evaluate a deliverable against a contract.")
+    evaluate = subparsers.add_parser("evaluate", help="Evaluate a deliverable against a contract.")
     evaluate.add_argument("contract_id")
     evaluate.add_argument("deliverable_path")
     evaluate.add_argument("--type", choices=("prd", "roadmap", "research_plan"), default="prd")
     evaluate.add_argument("--store", default=".argus")
 
-    show = contract_subparsers.add_parser("show", help="Show a stored work contract.")
+    show = subparsers.add_parser("show", help="Show a stored work contract.")
     show.add_argument("contract_id")
     show.add_argument("--store", default=".argus")
 
-    score = contract_subparsers.add_parser("score", help="Show a stored work contract completeness score.")
+    score = subparsers.add_parser("score", help="Show a stored work contract completeness score.")
     score.add_argument("contract_id")
     score.add_argument("--store", default=".argus")
 
-    render = contract_subparsers.add_parser("render", help="Render a deliverable draft from a work contract.")
+    render = subparsers.add_parser("render", help="Render a deliverable draft from a work contract.")
     render.add_argument("contract_id")
     render.add_argument("--type", choices=("prd", "roadmap", "research_plan"), default="prd")
     render.add_argument("--store", default=".argus")
 
-    ingest_contract = ledger_subparsers.add_parser("ingest-contract", help="Import contract evidence into the event ledger.")
+
+def _add_ledger_commands(subparsers: Any) -> None:
+    ingest_contract = subparsers.add_parser("ingest-contract", help="Import contract evidence into the event ledger.")
     ingest_contract.add_argument("contract_id")
     ingest_contract.add_argument("--store", default=".argus")
 
-    ingest_transcript = ledger_subparsers.add_parser("ingest-transcript", help="Import a transcript JSONL fixture.")
+    ingest_transcript = subparsers.add_parser("ingest-transcript", help="Import a transcript JSONL fixture.")
     ingest_transcript.add_argument("path")
     ingest_transcript.add_argument("--store", default=".argus")
 
-    ledger_list = ledger_subparsers.add_parser("list", help="List event ledger records.")
+    ledger_list = subparsers.add_parser("list", help="List event ledger records.")
     ledger_list.add_argument("--store", default=".argus")
 
-    learning_extract = learning_subparsers.add_parser("extract", help="Extract candidate learnings from the event ledger.")
+
+def _add_learning_commands(subparsers: Any) -> None:
+    learning_extract = subparsers.add_parser("extract", help="Extract candidate learnings from the event ledger.")
     learning_extract.add_argument("--store", default=".argus")
 
-    learning_list = learning_subparsers.add_parser("list", help="List candidate learnings.")
+    learning_list = subparsers.add_parser("list", help="List candidate learnings.")
     learning_list.add_argument("--store", default=".argus")
 
-    learning_report = learning_subparsers.add_parser("report", help="Write a local learning report.")
+    learning_report = subparsers.add_parser("report", help="Write a local learning report.")
     learning_report.add_argument("--store", default=".argus")
 
-    args = parser.parse_args(argv)
+
+def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    handlers = {
+        ("contract", "draft"): _draft,
+        ("contract", "start"): _start,
+        ("contract", "evaluate"): _evaluate,
+        ("contract", "show"): _show,
+        ("contract", "score"): _score,
+        ("contract", "render"): _render,
+        ("ledger", "ingest-contract"): _ledger_ingest_contract,
+        ("ledger", "ingest-transcript"): _ledger_ingest_transcript,
+        ("ledger", "list"): _ledger_list,
+        ("learning", "extract"): _learning_extract,
+        ("learning", "list"): _learning_list,
+        ("learning", "report"): _learning_report,
+    }
+    subcommand = getattr(args, f"{args.command}_command")
     try:
-        if args.command == "contract" and args.contract_command == "draft":
-            return _draft(args)
-        if args.command == "contract" and args.contract_command == "start":
-            return _start(args)
-        if args.command == "contract" and args.contract_command == "evaluate":
-            return _evaluate(args)
-        if args.command == "contract" and args.contract_command == "show":
-            return _show(args)
-        if args.command == "contract" and args.contract_command == "score":
-            return _score(args)
-        if args.command == "contract" and args.contract_command == "render":
-            return _render(args)
-        if args.command == "ledger" and args.ledger_command == "ingest-contract":
-            return _ledger_ingest_contract(args)
-        if args.command == "ledger" and args.ledger_command == "ingest-transcript":
-            return _ledger_ingest_transcript(args)
-        if args.command == "ledger" and args.ledger_command == "list":
-            return _ledger_list(args)
-        if args.command == "learning" and args.learning_command == "extract":
-            return _learning_extract(args)
-        if args.command == "learning" and args.learning_command == "list":
-            return _learning_list(args)
-        if args.command == "learning" and args.learning_command == "report":
-            return _learning_report(args)
+        handler = handlers.get((args.command, subcommand))
+        if handler:
+            return handler(args)
     except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

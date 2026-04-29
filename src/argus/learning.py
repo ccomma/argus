@@ -6,6 +6,7 @@ from hashlib import sha1
 from pathlib import Path
 from typing import Any
 
+from argus.jsonl import AppendOnlyJsonlStore
 from argus.ledger import EventRecord
 
 
@@ -103,27 +104,21 @@ class LearningExtractor:
 class LearningLedger:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
+        self._store = AppendOnlyJsonlStore(
+            self.path,
+            serializer=lambda item: item.to_dict(),
+            deserializer=CandidateLearningItem.from_dict,
+            identity=lambda item: item.id,
+        )
 
     def append(self, item: CandidateLearningItem) -> bool:
-        existing_ids = {existing.id for existing in self.list_items()}
-        if item.id in existing_ids:
-            return False
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(item.to_dict(), sort_keys=True) + "\n")
-        return True
+        return self._store.append(item)
 
     def append_many(self, items: list[CandidateLearningItem]) -> int:
-        return sum(1 for item in items if self.append(item))
+        return self._store.append_many(items)
 
     def list_items(self) -> list[CandidateLearningItem]:
-        if not self.path.exists():
-            return []
-        return [
-            CandidateLearningItem.from_dict(json.loads(line))
-            for line in self.path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
+        return self._store.list_items()
 
 
 @dataclass(frozen=True)
