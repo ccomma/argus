@@ -110,6 +110,17 @@ PYTHONPATH=src python3 -m argus.cli contract render <contract-id> --type prd
 PYTHONPATH=src python3 -m argus.cli contract evaluate <contract-id> path/to/deliverable.md --type prd
 ```
 
+Useful Phase 2 commands:
+
+```bash
+PYTHONPATH=src python3 -m argus.cli ledger ingest-contract <contract-id>
+PYTHONPATH=src python3 -m argus.cli ledger ingest-transcript path/to/transcript.jsonl
+PYTHONPATH=src python3 -m argus.cli ledger list
+PYTHONPATH=src python3 -m argus.cli learning extract
+PYTHONPATH=src python3 -m argus.cli learning list
+PYTHONPATH=src python3 -m argus.cli learning report
+```
+
 The local contract workspace stores:
 
 - `contract.json`
