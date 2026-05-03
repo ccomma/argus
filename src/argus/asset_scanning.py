@@ -5,10 +5,13 @@ import tomllib
 from pathlib import Path
 from typing import Any, Callable
 
-from argus.asset_models import AssetScanResult, CapabilityAsset
+from argus.asset_models import AssetScanProfile, AssetScanResult, CapabilityAsset
 
 
 class CapabilityAssetScanner:
+    def scan_profile(self, profile: AssetScanProfile) -> AssetScanResult:
+        return self.scan(**profile.to_scan_kwargs())
+
     def scan(
         self,
         *,

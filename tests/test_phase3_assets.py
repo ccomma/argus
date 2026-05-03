@@ -5,10 +5,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from argus.asset_analysis import analyze_assets
 from argus.assets import (
     AssetReporter,
     CandidateAssetLinker,
     CapabilityAsset,
+    AssetScanProfile,
     CapabilityAssetScanner,
     CapabilityInventory,
     local_codex_asset_profile,
@@ -92,6 +94,22 @@ class Phase3AssetsTest(unittest.TestCase):
         self.assertEqual(by_name["AGENTS.md"], "rule")
         self.assertEqual(by_name["MEMORY.md"], "memory")
 
+    def test_scanner_accepts_asset_scan_profile_as_deep_interface(self):
+        profile = AssetScanProfile(
+            skill_dirs=[FIXTURES / "skills"],
+            plugin_dirs=[],
+            mcp_configs=[],
+            rule_files=[],
+            script_dirs=[],
+            memory_dirs=[],
+        )
+
+        result = CapabilityAssetScanner().scan_profile(profile)
+
+        self.assertEqual(result.warnings, [])
+        self.assertEqual([asset.type for asset in result.assets], ["skill"])
+        self.assertEqual(result.assets[0].name, "research")
+
     def test_candidate_learning_links_to_matching_asset(self):
         result = CapabilityAssetScanner().scan(script_dirs=[FIXTURES / "scripts"])
         learning = CandidateLearningItem.create(
@@ -150,6 +168,34 @@ class Phase3AssetsTest(unittest.TestCase):
         self.assertIn("research (skill)", markdown)
         self.assertIn("research plugin (plugin)", markdown)
         self.assertIn("permissions=network", markdown)
+
+    def test_asset_analysis_returns_governance_facts_without_rendering(self):
+        assets = [
+            CapabilityAsset.create(
+                name="research",
+                type="skill",
+                source="local_skill",
+                install_path="/tmp/skill",
+                agents=["codex"],
+            ),
+            CapabilityAsset.create(
+                name="research plugin",
+                type="plugin",
+                source="codex_plugin",
+                install_path="/tmp/plugin",
+                agents=["codex"],
+                permissions=["network"],
+                risk_score=0.55,
+            ),
+        ]
+
+        analysis = analyze_assets(assets)
+
+        self.assertEqual(analysis.by_type, {"plugin": 1, "skill": 1})
+        self.assertEqual(analysis.risk_counts.medium, 1)
+        self.assertEqual(len(analysis.duplicates), 1)
+        self.assertEqual(len(analysis.conflicts), 1)
+        self.assertEqual([asset.name for asset in analysis.risky_assets], ["research plugin"])
 
     def test_assets_cli_scan_list_report_and_link(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -31,3 +31,11 @@ class ArgusPaths:
     @property
     def asset_reports_dir(self) -> Path:
         return self.root / "assets" / "reports"
+
+    @property
+    def capability_packs_dir(self) -> Path:
+        return self.root / "capability-packs"
+
+    @property
+    def role_packs_dir(self) -> Path:
+        return self.root / "role-packs"

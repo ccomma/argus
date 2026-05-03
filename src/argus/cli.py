@@ -6,19 +6,23 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from argus.application import (
+    AssetApplication,
+    CapabilityPackApplication,
+    LearningApplication,
+    LedgerApplication,
+    RolePackApplication,
+)
 from argus.assets import (
-    AssetReporter,
-    CandidateAssetLinker,
-    CapabilityAssetScanner,
     CapabilityInventory,
     AssetScanProfile,
     local_codex_asset_profile,
 )
+from argus.capability_packs import CapabilityPackStore, RolePackStore
 from argus.contracts import ContractSession, QuestionStrategy
 from argus.core import ArgusCore
-from argus.ingestion import ContractEvidenceIngestor, TranscriptIngestor
 from argus.ledger import EventLedger
-from argus.learning import LearningExtractor, LearningLedger, LearningReporter
+from argus.learning import LearningLedger
 from argus.paths import ArgusPaths
 from argus.storage import ContractStorage
 
@@ -35,11 +39,17 @@ def main(argv: list[str] | None = None) -> int:
     learning_subparsers = learning.add_subparsers(dest="learning_command", required=True)
     assets = subparsers.add_parser("assets", help="Capability asset inventory commands.")
     assets_subparsers = assets.add_subparsers(dest="assets_command", required=True)
+    packs = subparsers.add_parser("packs", help="Capability pack commands.")
+    packs_subparsers = packs.add_subparsers(dest="packs_command", required=True)
+    roles = subparsers.add_parser("roles", help="Role capability pack commands.")
+    roles_subparsers = roles.add_subparsers(dest="roles_command", required=True)
 
     _add_contract_commands(contract_subparsers)
     _add_ledger_commands(ledger_subparsers)
     _add_learning_commands(learning_subparsers)
     _add_asset_commands(assets_subparsers)
+    _add_pack_commands(packs_subparsers)
+    _add_role_commands(roles_subparsers)
 
     args = parser.parse_args(argv)
     return _dispatch(parser, args)
@@ -82,6 +92,13 @@ def _add_contract_commands(subparsers: Any) -> None:
     render.add_argument("--type", choices=("prd", "roadmap", "research_plan"), default="prd")
     render.add_argument("--store", default=".argus")
 
+    bind_pack = subparsers.add_parser("bind-pack", help="Bind a concrete capability pack version to a work contract.")
+    bind_pack.add_argument("contract_id")
+    bind_pack.add_argument("pack_id")
+    bind_pack.add_argument("--version", type=int, default=None)
+    bind_pack.add_argument("--rationale", required=True)
+    bind_pack.add_argument("--store", default=".argus")
+
 
 def _add_ledger_commands(subparsers: Any) -> None:
     ingest_contract = subparsers.add_parser("ingest-contract", help="Import contract evidence into the event ledger.")
@@ -121,6 +138,58 @@ def _add_asset_commands(subparsers: Any) -> None:
     link.add_argument("--store", default=".argus")
 
 
+def _add_pack_commands(subparsers: Any) -> None:
+    propose = subparsers.add_parser("propose", help="Propose a capability pack manifest from inventory assets.")
+    _add_pack_create_args(propose)
+
+    create = subparsers.add_parser("create", help="Create a versioned capability pack manifest.")
+    _add_pack_create_args(create)
+
+    inspect = subparsers.add_parser("inspect", help="Inspect a capability pack manifest.")
+    inspect.add_argument("pack_id")
+    inspect.add_argument("--version", type=int, default=None)
+    inspect.add_argument("--store", default=".argus")
+
+    check = subparsers.add_parser("check", help="Check a capability pack against the current inventory.")
+    check.add_argument("pack_id")
+    check.add_argument("--version", type=int, default=None)
+    check.add_argument("--store", default=".argus")
+
+    advise = subparsers.add_parser("advise", help="Report missing and duplicate capabilities for requested capability names.")
+    advise.add_argument("--required-capability", action="append", default=[])
+    advise.add_argument("--store", default=".argus")
+
+
+def _add_role_commands(subparsers: Any) -> None:
+    create = subparsers.add_parser("create-pack", help="Create a role capability pack from existing capability packs.")
+    create.add_argument("--store", default=".argus")
+    create.add_argument("--role-id", required=True)
+    create.add_argument("--display-name", required=True)
+    create.add_argument("--required-pack", action="append", default=[])
+    create.add_argument("--optional-pack", action="append", default=[])
+    create.add_argument("--created-by", default="argus-cli")
+
+    inspect = subparsers.add_parser("inspect-pack", help="Inspect a role capability pack.")
+    inspect.add_argument("role_id")
+    inspect.add_argument("--version", type=int, default=None)
+    inspect.add_argument("--store", default=".argus")
+
+    check = subparsers.add_parser("check-pack", help="Check a role capability pack.")
+    check.add_argument("role_id")
+    check.add_argument("--version", type=int, default=None)
+    check.add_argument("--store", default=".argus")
+
+
+def _add_pack_create_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--store", default=".argus")
+    parser.add_argument("--pack-id", required=True)
+    parser.add_argument("--display-name", required=True)
+    parser.add_argument("--description", default="")
+    parser.add_argument("--required-asset", action="append", default=[])
+    parser.add_argument("--optional-asset", action="append", default=[])
+    parser.add_argument("--created-by", default="argus-cli")
+
+
 def _add_asset_scan_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--store", default=".argus")
     parser.add_argument("--profile", choices=("local-codex",), action="append", default=[])
@@ -141,6 +210,7 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         ("contract", "show"): _show,
         ("contract", "score"): _score,
         ("contract", "render"): _render,
+        ("contract", "bind-pack"): _contract_bind_pack,
         ("ledger", "ingest-contract"): _ledger_ingest_contract,
         ("ledger", "ingest-transcript"): _ledger_ingest_transcript,
         ("ledger", "list"): _ledger_list,
@@ -151,6 +221,14 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         ("assets", "list"): _assets_list,
         ("assets", "report"): _assets_report,
         ("assets", "link-learnings"): _assets_link_learnings,
+        ("packs", "propose"): _packs_propose,
+        ("packs", "create"): _packs_create,
+        ("packs", "inspect"): _packs_inspect,
+        ("packs", "check"): _packs_check,
+        ("packs", "advise"): _packs_advise,
+        ("roles", "create-pack"): _roles_create_pack,
+        ("roles", "inspect-pack"): _roles_inspect_pack,
+        ("roles", "check-pack"): _roles_check_pack,
     }
     subcommand = getattr(args, f"{args.command}_command")
     try:
@@ -217,49 +295,49 @@ def _render(args: argparse.Namespace) -> int:
     return 0
 
 
+def _contract_bind_pack(args: argparse.Namespace) -> int:
+    binding = _pack_application(args).bind_contract(args.contract_id, args.pack_id, args.rationale, args.version)
+    _print_json(binding.to_dict())
+    return 0
+
+
 def _ledger_ingest_contract(args: argparse.Namespace) -> int:
-    imported = ContractEvidenceIngestor(_storage(args), _event_ledger(args)).ingest(args.contract_id)
+    imported = _ledger_application(args).ingest_contract(args.contract_id)
     _print_json({"imported": imported})
     return 0
 
 
 def _ledger_ingest_transcript(args: argparse.Namespace) -> int:
-    imported = TranscriptIngestor(_event_ledger(args)).ingest(args.path)
+    imported = _ledger_application(args).ingest_transcript(args.path)
     _print_json({"imported": imported})
     return 0
 
 
 def _ledger_list(args: argparse.Namespace) -> int:
-    _print_json([event.to_dict() for event in _event_ledger(args).list_events()])
+    _print_json([event.to_dict() for event in _ledger_application(args).list_events()])
     return 0
 
 
 def _learning_extract(args: argparse.Namespace) -> int:
-    items = LearningExtractor().extract(_event_ledger(args).list_events())
-    created = _learning_ledger(args).append_many(items)
+    created = _learning_application(args).extract()
     _print_json({"created": created})
     return 0
 
 
 def _learning_list(args: argparse.Namespace) -> int:
-    _print_json([item.to_dict() for item in _learning_ledger(args).list_items()])
+    _print_json([item.to_dict() for item in _learning_application(args).list_items()])
     return 0
 
 
 def _learning_report(args: argparse.Namespace) -> int:
-    report = LearningReporter(_reports_dir(args)).write(
-        _event_ledger(args).list_events(),
-        _learning_ledger(args).list_items(),
-    )
+    report = _learning_application(args).write_report()
     _print_json({"markdown_path": str(report.markdown_path), "json_path": str(report.json_path)})
     return 0
 
 
 def _assets_scan(args: argparse.Namespace) -> int:
     profile = _asset_scan_profile(args)
-    result = CapabilityAssetScanner().scan(**profile.to_scan_kwargs())
-    _asset_inventory(args).write(result.assets)
-    report = AssetReporter(_asset_reports_dir(args)).write(result.assets, warnings=result.warnings)
+    result, report = _asset_application(args).scan(profile)
     _print_json(
         {
             "assets": len(result.assets),
@@ -273,19 +351,18 @@ def _assets_scan(args: argparse.Namespace) -> int:
 
 
 def _assets_list(args: argparse.Namespace) -> int:
-    _print_json([asset.to_dict() for asset in _asset_inventory(args).list_assets()])
+    _print_json([asset.to_dict() for asset in _asset_application(args).list_assets()])
     return 0
 
 
 def _assets_report(args: argparse.Namespace) -> int:
-    report = AssetReporter(_asset_reports_dir(args)).write(_asset_inventory(args).list_assets())
+    report = _asset_application(args).write_report()
     _print_json({"report_path": str(report.report_path)})
     return 0
 
 
 def _assets_link_learnings(args: argparse.Namespace) -> int:
-    links = CandidateAssetLinker().link(_learning_ledger(args).list_items(), _asset_inventory(args).list_assets())
-    report = AssetReporter(_asset_reports_dir(args)).write(_asset_inventory(args).list_assets(), links=links)
+    links, report = _asset_application(args).link_learnings()
     _print_json(
         {
             "links": len(links),
@@ -295,12 +372,102 @@ def _assets_link_learnings(args: argparse.Namespace) -> int:
     return 0
 
 
+def _packs_propose(args: argparse.Namespace) -> int:
+    result = _pack_application(args).propose(
+        pack_id=args.pack_id,
+        display_name=args.display_name,
+        description=args.description,
+        required_asset_ids=args.required_asset,
+        optional_asset_ids=args.optional_asset,
+        created_by=args.created_by,
+    )
+    _print_json(_pack_result_dict(result))
+    return 0
+
+
+def _packs_create(args: argparse.Namespace) -> int:
+    result = _pack_application(args).create(
+        pack_id=args.pack_id,
+        display_name=args.display_name,
+        description=args.description,
+        required_asset_ids=args.required_asset,
+        optional_asset_ids=args.optional_asset,
+        created_by=args.created_by,
+    )
+    _print_json(_pack_result_dict(result))
+    return 0
+
+
+def _packs_inspect(args: argparse.Namespace) -> int:
+    manifest, hash_value = _pack_application(args).inspect(args.pack_id, args.version)
+    _print_json({"content_hash": hash_value, "manifest": manifest.to_dict()})
+    return 0
+
+
+def _packs_check(args: argparse.Namespace) -> int:
+    _print_json(_pack_application(args).check(args.pack_id, args.version).to_dict())
+    return 0
+
+
+def _packs_advise(args: argparse.Namespace) -> int:
+    report = _pack_application(args).advise(args.required_capability)
+    _print_json(report.to_dict())
+    return 0
+
+
+def _roles_create_pack(args: argparse.Namespace) -> int:
+    role_pack = _role_application(args).create(
+        role_id=args.role_id,
+        display_name=args.display_name,
+        required_pack_ids=args.required_pack,
+        optional_pack_ids=args.optional_pack,
+        created_by=args.created_by,
+    )
+    _print_json(role_pack.to_dict())
+    return 0
+
+
+def _roles_inspect_pack(args: argparse.Namespace) -> int:
+    _print_json(_role_application(args).inspect(args.role_id, args.version).to_dict())
+    return 0
+
+
+def _roles_check_pack(args: argparse.Namespace) -> int:
+    _print_json(_role_application(args).check(args.role_id, args.version).to_dict())
+    return 0
+
+
 def _core(args: argparse.Namespace) -> ArgusCore:
     return ArgusCore(_storage(args))
 
 
 def _storage(args: argparse.Namespace) -> ContractStorage:
     return ContractStorage(args.store)
+
+
+def _ledger_application(args: argparse.Namespace) -> LedgerApplication:
+    return LedgerApplication(_storage(args), _event_ledger(args))
+
+
+def _learning_application(args: argparse.Namespace) -> LearningApplication:
+    return LearningApplication(_event_ledger(args), _learning_ledger(args), _reports_dir(args))
+
+
+def _asset_application(args: argparse.Namespace) -> AssetApplication:
+    return AssetApplication(_asset_inventory(args), _asset_reports_dir(args), _learning_ledger(args))
+
+
+def _pack_application(args: argparse.Namespace) -> CapabilityPackApplication:
+    return CapabilityPackApplication(
+        _asset_inventory(args),
+        CapabilityPackStore(_paths(args).capability_packs_dir),
+        _storage(args),
+    )
+
+
+def _role_application(args: argparse.Namespace) -> RolePackApplication:
+    pack_store = CapabilityPackStore(_paths(args).capability_packs_dir)
+    return RolePackApplication(_asset_inventory(args), RolePackStore(_paths(args).role_packs_dir, pack_store))
 
 
 def _event_ledger(args: argparse.Namespace) -> EventLedger:
@@ -356,6 +523,16 @@ def _answers_from_args(args: argparse.Namespace) -> dict[str, str]:
 
 def _print_json(data: Any) -> None:
     print(json.dumps(data, indent=2, sort_keys=True))
+
+
+def _pack_result_dict(result: Any) -> dict[str, Any]:
+    return {
+        "content_hash": result.content_hash,
+        "manifest": result.manifest.to_dict(),
+        "pack_id": result.manifest.pack_id,
+        "path": str(result.path) if result.path else None,
+        "version": result.manifest.version,
+    }
 
 
 if __name__ == "__main__":

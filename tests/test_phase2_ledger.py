@@ -4,8 +4,8 @@ from pathlib import Path
 
 from argus.core import ArgusCore
 from argus.ingestion import ContractEvidenceIngestor, TranscriptIngestor
-from argus.ledger import EventLedger
-from argus.learning import LearningExtractor, LearningLedger, LearningReporter
+from argus.ledger import EventLedger, EventRecord
+from argus.learning import CandidateLearningItem, LearningExtractor, LearningLedger, LearningReporter
 from argus.storage import ContractStorage
 
 
@@ -58,6 +58,32 @@ class Phase2LedgerTest(unittest.TestCase):
         self.assertIn("tool_pitfall", {item.type for item in loaded_candidates})
         self.assertTrue(all(item.status == "pending" for item in loaded_candidates))
         self.assertTrue(all(item.evidence_refs for item in loaded_candidates))
+
+    def test_learning_extractor_accepts_focused_rules(self):
+        event = EventRecord.create(
+            source="test",
+            event_type="custom_signal",
+            evidence={"summary": "Custom signal should become a candidate."},
+        )
+        extractor = LearningExtractor(
+            rules=[
+                lambda events: [
+                    CandidateLearningItem.create(
+                        summary=event.evidence["summary"],
+                        type="custom",
+                        evidence_refs=[event.id],
+                        reverse_learning_target="capability_pack",
+                    )
+                    for event in events
+                    if event.event_type == "custom_signal"
+                ]
+            ]
+        )
+
+        candidates = extractor.extract([event])
+
+        self.assertEqual([candidate.type for candidate in candidates], ["custom"])
+        self.assertEqual(candidates[0].evidence_refs, [event.id])
 
     def test_failed_contract_evaluation_becomes_deliverable_gap_candidate(self):
         with tempfile.TemporaryDirectory() as tmpdir:

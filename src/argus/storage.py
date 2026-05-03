@@ -5,6 +5,7 @@ from pathlib import Path
 
 from argus.contracts import WorkContract
 from argus.deliverables import DeliverableEvaluation
+from argus.evidence import deliverable_evaluated_event, deliverable_rendered_event
 
 
 class ContractStorage:
@@ -28,15 +29,7 @@ class ContractStorage:
         evaluations_dir.mkdir(parents=True, exist_ok=True)
         index = len(list(evaluations_dir.glob("*.json"))) + 1
         self._write_json(evaluations_dir / f"evaluation-{index}.json", evaluation.to_dict())
-        self.append_evidence(
-            contract_id,
-            {
-                "event_type": "deliverable_evaluated",
-                "deliverable_type": evaluation.deliverable_type,
-                "status": evaluation.status,
-                "missing_items": evaluation.missing_items,
-            },
-        )
+        self.append_evidence(contract_id, deliverable_evaluated_event(evaluation))
 
     def list_evaluations(self, contract_id: str) -> list[DeliverableEvaluation]:
         evaluations_dir = self._contract_dir(contract_id) / "evaluations"
@@ -52,14 +45,7 @@ class ContractStorage:
         deliverables_dir.mkdir(parents=True, exist_ok=True)
         path = deliverables_dir / f"{deliverable_type}.md"
         path.write_text(text, encoding="utf-8")
-        self.append_evidence(
-            contract_id,
-            {
-                "event_type": "deliverable_rendered",
-                "deliverable_type": deliverable_type,
-                "path": str(path),
-            },
-        )
+        self.append_evidence(contract_id, deliverable_rendered_event(deliverable_type, path))
         return path
 
     def append_evidence(self, contract_id: str, event: dict) -> None:
@@ -67,6 +53,11 @@ class ContractStorage:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event, sort_keys=True) + "\n")
+
+    def save_contract_artifact(self, contract_id: str, name: str, data: dict) -> Path:
+        path = self._contract_dir(contract_id) / name
+        self._write_json(path, data)
+        return path
 
     def list_evidence(self, contract_id: str) -> list[dict]:
         path = self._contract_dir(contract_id) / "evidence.jsonl"
