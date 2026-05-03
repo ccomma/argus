@@ -9,6 +9,7 @@ from typing import Any
 from argus.application import (
     AssetApplication,
     CapabilityPackApplication,
+    GovernanceApplication,
     LearningApplication,
     LedgerApplication,
     RolePackApplication,
@@ -43,6 +44,8 @@ def main(argv: list[str] | None = None) -> int:
     packs_subparsers = packs.add_subparsers(dest="packs_command", required=True)
     roles = subparsers.add_parser("roles", help="Role capability pack commands.")
     roles_subparsers = roles.add_subparsers(dest="roles_command", required=True)
+    governance = subparsers.add_parser("governance", help="Governance report commands.")
+    governance_subparsers = governance.add_subparsers(dest="governance_command", required=True)
 
     _add_contract_commands(contract_subparsers)
     _add_ledger_commands(ledger_subparsers)
@@ -50,6 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     _add_asset_commands(assets_subparsers)
     _add_pack_commands(packs_subparsers)
     _add_role_commands(roles_subparsers)
+    _add_governance_commands(governance_subparsers)
 
     args = parser.parse_args(argv)
     return _dispatch(parser, args)
@@ -180,6 +184,11 @@ def _add_role_commands(subparsers: Any) -> None:
     check.add_argument("--store", default=".argus")
 
 
+def _add_governance_commands(subparsers: Any) -> None:
+    report = subparsers.add_parser("report", help="Write a local governance report.")
+    report.add_argument("--store", default=".argus")
+
+
 def _add_pack_create_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--store", default=".argus")
     parser.add_argument("--pack-id", required=True)
@@ -229,6 +238,7 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         ("roles", "create-pack"): _roles_create_pack,
         ("roles", "inspect-pack"): _roles_inspect_pack,
         ("roles", "check-pack"): _roles_check_pack,
+        ("governance", "report"): _governance_report,
     }
     subcommand = getattr(args, f"{args.command}_command")
     try:
@@ -437,6 +447,19 @@ def _roles_check_pack(args: argparse.Namespace) -> int:
     return 0
 
 
+def _governance_report(args: argparse.Namespace) -> int:
+    report = _governance_application(args).write_report()
+    _print_json(
+        {
+            "markdown_path": str(report.markdown_path),
+            "json_path": str(report.json_path),
+            "low_risk_log_path": str(report.low_risk_log_path),
+            "pending_actions_path": str(report.pending_actions_path),
+        }
+    )
+    return 0
+
+
 def _core(args: argparse.Namespace) -> ArgusCore:
     return ArgusCore(_storage(args))
 
@@ -468,6 +491,19 @@ def _pack_application(args: argparse.Namespace) -> CapabilityPackApplication:
 def _role_application(args: argparse.Namespace) -> RolePackApplication:
     pack_store = CapabilityPackStore(_paths(args).capability_packs_dir)
     return RolePackApplication(_asset_inventory(args), RolePackStore(_paths(args).role_packs_dir, pack_store))
+
+
+def _governance_application(args: argparse.Namespace) -> GovernanceApplication:
+    pack_store = CapabilityPackStore(_paths(args).capability_packs_dir)
+    role_store = RolePackStore(_paths(args).role_packs_dir, pack_store)
+    return GovernanceApplication(
+        _storage(args),
+        _learning_ledger(args),
+        _asset_inventory(args),
+        pack_store,
+        role_store,
+        _paths(args).governance_reports_dir,
+    )
 
 
 def _event_ledger(args: argparse.Namespace) -> EventLedger:

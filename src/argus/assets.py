@@ -36,6 +36,7 @@ from argus.capability_packs import (
     RolePackStore,
     infer_risk,
 )
+from argus.governance import GovernanceFinding, GovernanceReporter, GovernanceReportResult, PendingAction
 
 
 __all__ = [
@@ -68,6 +69,10 @@ __all__ = [
     "RoleCapabilityPack",
     "RolePackCheckReport",
     "RolePackStore",
+    "GovernanceFinding",
+    "GovernanceReporter",
+    "GovernanceReportResult",
+    "PendingAction",
     "analyze_assets",
     "find_potential_conflicts",
     "find_potential_duplicates",

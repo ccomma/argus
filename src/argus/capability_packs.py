@@ -306,6 +306,15 @@ class CapabilityPackStore:
         manifest = CapabilityPackManifest.from_dict(json.loads(path.read_text(encoding="utf-8")))
         return manifest, content_hash(manifest)
 
+    def list_latest(self) -> list[CapabilityPackManifest]:
+        if not self.root.exists():
+            return []
+        manifests: list[CapabilityPackManifest] = []
+        for pack_dir in sorted(path for path in self.root.iterdir() if path.is_dir()):
+            manifest, _ = self.load(pack_dir.name)
+            manifests.append(manifest)
+        return manifests
+
     def manifest_path(self, pack_id: str, version: int) -> Path:
         return self.root / pack_id / f"{version}.json"
 
@@ -435,6 +444,14 @@ class RolePackStore:
     def load(self, role_id: str, version: int | None = None) -> RoleCapabilityPack:
         resolved_version = version if version is not None else self.latest_version(role_id)
         return RoleCapabilityPack.from_dict(json.loads(self.manifest_path(role_id, resolved_version).read_text(encoding="utf-8")))
+
+    def list_latest(self) -> list[RoleCapabilityPack]:
+        if not self.root.exists():
+            return []
+        role_packs: list[RoleCapabilityPack] = []
+        for role_dir in sorted(path for path in self.root.iterdir() if path.is_dir()):
+            role_packs.append(self.load(role_dir.name))
+        return role_packs
 
     def check(self, role_id: str, assets: list[CapabilityAsset], version: int | None = None) -> RolePackCheckReport:
         role_pack = self.load(role_id, version)

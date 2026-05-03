@@ -24,6 +24,15 @@ class ContractStorage:
         path = self._contract_dir(contract_id) / "contract.json"
         return WorkContract.from_dict(self._read_json(path))
 
+    def list_contracts(self) -> list[WorkContract]:
+        contracts_dir = self.root / "contracts"
+        if not contracts_dir.exists():
+            return []
+        contracts: list[WorkContract] = []
+        for path in sorted(contracts_dir.glob("*/contract.json")):
+            contracts.append(WorkContract.from_dict(self._read_json(path)))
+        return contracts
+
     def save_evaluation(self, contract_id: str, evaluation: DeliverableEvaluation) -> None:
         evaluations_dir = self._contract_dir(contract_id) / "evaluations"
         evaluations_dir.mkdir(parents=True, exist_ok=True)
