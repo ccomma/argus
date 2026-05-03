@@ -173,6 +173,7 @@ It is especially useful for developers, creators, operators, and teams that want
 
 - Local-first by default.
 - Runtime-neutral core, agent-specific adapters at the edge.
+- Keep project knowledge source-of-truth based: domain language in `CONTEXT.md`, long-term product judgment in `DESIGN.md`, current status in handoffs, proof in acceptance records, and durable tradeoff decisions in ADRs.
 - Work contracts are not chat summaries; they need goals, boundaries, confirmation points, and acceptance criteria.
 - Roles are not personalities; they are governed bundles of workflow, questions, deliverables, capability packs, and acceptance criteria.
 - Prefer mature existing capabilities before generating new ones.

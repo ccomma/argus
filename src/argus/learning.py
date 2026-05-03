@@ -4,7 +4,7 @@ import json
 from dataclasses import asdict, dataclass
 from hashlib import sha1
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from argus.jsonl import AppendOnlyJsonlStore
 from argus.ledger import EventRecord
@@ -59,45 +59,17 @@ class CandidateLearningItem:
 
 
 class LearningExtractor:
+    def __init__(self, rules: list[Callable[[list[EventRecord]], list[CandidateLearningItem]]] | None = None) -> None:
+        self.rules = rules or [
+            _user_correction_learnings,
+            _deliverable_gap_learnings,
+            _tool_pitfall_learnings,
+        ]
+
     def extract(self, events: list[EventRecord]) -> list[CandidateLearningItem]:
         candidates: list[CandidateLearningItem] = []
-        command_failures = [event for event in events if event.event_type == "command_failed"]
-        recoveries = [event for event in events if event.event_type == "command_recovered"]
-        for event in events:
-            if event.event_type == "user_correction":
-                candidates.append(
-                    CandidateLearningItem.create(
-                        summary=_summary(event, "User correction may indicate a stable project or user preference."),
-                        type="correction",
-                        scope="project",
-                        confidence=0.75,
-                        evidence_refs=[event.id],
-                        reverse_learning_target="question_strategy",
-                    )
-                )
-            elif event.event_type == "deliverable_evaluated" and event.execution_evidence.get("status") in {"partial", "fail"}:
-                candidates.append(
-                    CandidateLearningItem.create(
-                        summary="Deliverable evaluation found missing required items.",
-                        type="deliverable_gap",
-                        scope="project",
-                        confidence=0.7,
-                        evidence_refs=[event.id],
-                        reverse_learning_target="deliverable_contract",
-                    )
-                )
-        if command_failures:
-            refs = [event.id for event in command_failures + recoveries]
-            candidates.append(
-                CandidateLearningItem.create(
-                    summary="A command failed and may need a documented recovery path.",
-                    type="tool_pitfall",
-                    scope="tool",
-                    confidence=0.8 if recoveries else 0.55,
-                    evidence_refs=refs,
-                    reverse_learning_target="capability_pack",
-                )
-            )
+        for rule in self.rules:
+            candidates.extend(rule(events))
         return _deduplicate(candidates)
 
 
@@ -155,6 +127,54 @@ class LearningReporter:
 def _summary(event: EventRecord, fallback: str) -> str:
     evidence = event.evidence or {}
     return evidence.get("message") or evidence.get("summary") or fallback
+
+
+def _user_correction_learnings(events: list[EventRecord]) -> list[CandidateLearningItem]:
+    return [
+        CandidateLearningItem.create(
+            summary=_summary(event, "User correction may indicate a stable project or user preference."),
+            type="correction",
+            scope="project",
+            confidence=0.75,
+            evidence_refs=[event.id],
+            reverse_learning_target="question_strategy",
+        )
+        for event in events
+        if event.event_type == "user_correction"
+    ]
+
+
+def _deliverable_gap_learnings(events: list[EventRecord]) -> list[CandidateLearningItem]:
+    return [
+        CandidateLearningItem.create(
+            summary="Deliverable evaluation found missing required items.",
+            type="deliverable_gap",
+            scope="project",
+            confidence=0.7,
+            evidence_refs=[event.id],
+            reverse_learning_target="deliverable_contract",
+        )
+        for event in events
+        if event.event_type == "deliverable_evaluated" and event.execution_evidence.get("status") in {"partial", "fail"}
+    ]
+
+
+def _tool_pitfall_learnings(events: list[EventRecord]) -> list[CandidateLearningItem]:
+    command_failures = [event for event in events if event.event_type == "command_failed"]
+    if not command_failures:
+        return []
+    recoveries = [event for event in events if event.event_type == "command_recovered"]
+    refs = [event.id for event in command_failures + recoveries]
+    return [
+        CandidateLearningItem.create(
+            summary="A command failed and may need a documented recovery path.",
+            type="tool_pitfall",
+            scope="tool",
+            confidence=0.8 if recoveries else 0.55,
+            evidence_refs=refs,
+            reverse_learning_target="capability_pack",
+        )
+    ]
 
 
 def _deduplicate(items: list[CandidateLearningItem]) -> list[CandidateLearningItem]:
