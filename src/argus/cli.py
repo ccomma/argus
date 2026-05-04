@@ -20,10 +20,12 @@ from argus.application import (
 from argus.controlled_modification import AuditLedger, AssetDiffer, RollbackManager, SnapshotManager
 from argus.assets import AssetScanProfile, CapabilityInventory, local_codex_asset_profile
 from argus.capability_packs import CapabilityPackStore, RolePackStore
+from argus.analytics import DashboardReporter, ROICalculator
 from argus.contracts import ContractSession, QuestionStrategy
 from argus.core import ArgusCore
 from argus.handoff import HandoffManager
 from argus.ledger import EventLedger, LearningLedger
+from argus.maintenance import MaintenanceEngine, MaintenanceReporter
 from argus.mcp import MCPServer
 from argus.paths import ArgusPaths
 from argus.storage import ContractStorage
@@ -54,6 +56,9 @@ def main(argv: list[str] | None = None) -> int:
     query = subparsers.add_parser("query", help="Cross-cutting lookup commands.")
     query_subparsers = query.add_subparsers(dest="query_command", required=True)
     mcp_serve = subparsers.add_parser("mcp-serve", help="Start the Argus MCP server on stdio.")
+    dashboard = subparsers.add_parser("dashboard", help="Write a local dashboard report.")
+    maintenance = subparsers.add_parser("maintenance", help="Run maintenance checks on the system.")
+    maintenance_subparsers = maintenance.add_subparsers(dest="maintenance_command", required=True)
 
     _add_contract_commands(contract_subparsers)
     _add_ledger_commands(ledger_subparsers)
@@ -66,6 +71,8 @@ def main(argv: list[str] | None = None) -> int:
     _add_modify_commands(modify_subparsers)
     _add_query_commands(query_subparsers)
     mcp_serve.add_argument("--store", default=".argus")
+    dashboard.add_argument("--store", default=".argus")
+    _add_maintenance_commands(maintenance_subparsers)
 
     args = parser.parse_args(argv)
     return _dispatch(parser, args)
@@ -259,6 +266,14 @@ def _add_modify_commands(subparsers: Any) -> None:
     report.add_argument("--store", default=".argus")
 
 
+def _add_maintenance_commands(subparsers: Any) -> None:
+    run = subparsers.add_parser("run", help="Run maintenance checks (duplicates, conflicts, unused).")
+    run.add_argument("--store", default=".argus")
+
+    report = subparsers.add_parser("report", help="Write a maintenance report.")
+    report.add_argument("--store", default=".argus")
+
+
 def _add_query_commands(subparsers: Any) -> None:
     contract = subparsers.add_parser("contract", help="Query contracts with related objects.")
     contract.add_argument("contract_id")
@@ -294,6 +309,8 @@ def _add_asset_scan_args(parser: argparse.ArgumentParser) -> None:
 def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     if args.command == "mcp-serve":
         return _mcp_serve(args)
+    if args.command == "dashboard":
+        return _dashboard(args)
 
     handlers = {
         ("contract", "draft"): _draft,
@@ -336,6 +353,8 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         ("modify", "report"): _modify_report,
         ("query", "contract"): _query_contract,
         ("query", "role"): _query_role,
+        ("maintenance", "run"): _maintenance_run,
+        ("maintenance", "report"): _maintenance_report,
     }
     subcommand = getattr(args, f"{args.command}_command")
     try:
@@ -693,6 +712,38 @@ def _mcp_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _dashboard(args: argparse.Namespace) -> int:
+    calculator = _roi_calculator(args)
+    p = _paths(args)
+    report = DashboardReporter(p.root / "reports").write(calculator)
+    _print_json({
+        "markdown_path": str(report.markdown_path),
+        "json_path": str(report.json_path),
+        "contract_roi": report.contract_roi.to_dict(),
+        "learning_roi": report.learning_roi.to_dict(),
+        "role_roi": report.role_roi.to_dict(),
+    })
+    return 0
+
+
+def _maintenance_run(args: argparse.Namespace) -> int:
+    engine = _maintenance_engine(args)
+    report = engine.run()
+    _print_json(report.to_dict())
+    return 0
+
+
+def _maintenance_report(args: argparse.Namespace) -> int:
+    engine = _maintenance_engine(args)
+    p = _paths(args)
+    paths = MaintenanceReporter(p.root / "maintenance").write(engine)
+    _print_json({
+        "markdown_path": str(paths.markdown_path),
+        "json_path": str(paths.json_path),
+    })
+    return 0
+
+
 def _parse_field_updates(fields: list[str]) -> dict[str, Any]:
     updates: dict[str, Any] = {}
     for f in fields:
@@ -773,6 +824,33 @@ def _query_application(args: argparse.Namespace) -> QueryApplication:
         pack_store,
         role_store,
         HandoffManager(p.handoffs_dir),
+    )
+
+
+def _roi_calculator(args: argparse.Namespace) -> ROICalculator:
+    p = _paths(args)
+    pack_store = CapabilityPackStore(p.capability_packs_dir)
+    role_store = RolePackStore(p.role_packs_dir, pack_store)
+    return ROICalculator(
+        _storage(args),
+        _event_ledger(args),
+        _learning_ledger(args),
+        _asset_inventory(args),
+        pack_store,
+        role_store,
+        HandoffManager(p.handoffs_dir),
+    )
+
+
+def _maintenance_engine(args: argparse.Namespace) -> MaintenanceEngine:
+    p = _paths(args)
+    pack_store = CapabilityPackStore(p.capability_packs_dir)
+    role_store = RolePackStore(p.role_packs_dir, pack_store)
+    return MaintenanceEngine(
+        _asset_inventory(args),
+        pack_store,
+        role_store,
+        _storage(args),
     )
 
 
