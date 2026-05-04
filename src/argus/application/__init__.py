@@ -6,6 +6,7 @@ from argus.application.learning import LearningApplication
 from argus.application.ledger import LedgerApplication
 from argus.application.packs import CapabilityPackApplication, RolePackApplication
 from argus.application.modification import ModificationApplication
+from argus.application.query import QueryApplication
 from argus.application.resolution import ResolutionApplication
 
 
@@ -16,6 +17,7 @@ __all__ = [
     "LearningApplication",
     "LedgerApplication",
     "ModificationApplication",
+    "QueryApplication",
     "ResolutionApplication",
     "RolePackApplication",
 ]

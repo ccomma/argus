@@ -13,6 +13,7 @@ from argus.application import (
     LearningApplication,
     LedgerApplication,
     ModificationApplication,
+    QueryApplication,
     ResolutionApplication,
     RolePackApplication,
 )
@@ -21,7 +22,9 @@ from argus.assets import AssetScanProfile, CapabilityInventory, local_codex_asse
 from argus.capability_packs import CapabilityPackStore, RolePackStore
 from argus.contracts import ContractSession, QuestionStrategy
 from argus.core import ArgusCore
+from argus.handoff import HandoffManager
 from argus.ledger import EventLedger, LearningLedger
+from argus.mcp import MCPServer
 from argus.paths import ArgusPaths
 from argus.storage import ContractStorage
 
@@ -48,6 +51,9 @@ def main(argv: list[str] | None = None) -> int:
     resolve_subparsers = resolve.add_subparsers(dest="resolve_command", required=True)
     modify = subparsers.add_parser("modify", help="Controlled modification and rollback commands.")
     modify_subparsers = modify.add_subparsers(dest="modify_command", required=True)
+    query = subparsers.add_parser("query", help="Cross-cutting lookup commands.")
+    query_subparsers = query.add_subparsers(dest="query_command", required=True)
+    mcp_serve = subparsers.add_parser("mcp-serve", help="Start the Argus MCP server on stdio.")
 
     _add_contract_commands(contract_subparsers)
     _add_ledger_commands(ledger_subparsers)
@@ -58,6 +64,8 @@ def main(argv: list[str] | None = None) -> int:
     _add_governance_commands(governance_subparsers)
     _add_resolve_commands(resolve_subparsers)
     _add_modify_commands(modify_subparsers)
+    _add_query_commands(query_subparsers)
+    mcp_serve.add_argument("--store", default=".argus")
 
     args = parser.parse_args(argv)
     return _dispatch(parser, args)
@@ -106,6 +114,9 @@ def _add_contract_commands(subparsers: Any) -> None:
     bind_pack.add_argument("--version", type=int, default=None)
     bind_pack.add_argument("--rationale", required=True)
     bind_pack.add_argument("--store", default=".argus")
+
+    contract_list = subparsers.add_parser("list", help="List all stored work contracts.")
+    contract_list.add_argument("--store", default=".argus")
 
 
 def _add_ledger_commands(subparsers: Any) -> None:
@@ -167,6 +178,9 @@ def _add_pack_commands(subparsers: Any) -> None:
     advise.add_argument("--required-capability", action="append", default=[])
     advise.add_argument("--store", default=".argus")
 
+    pack_list = subparsers.add_parser("list", help="List all stored capability packs.")
+    pack_list.add_argument("--store", default=".argus")
+
 
 def _add_role_commands(subparsers: Any) -> None:
     create = subparsers.add_parser("create-pack", help="Create a role capability pack from existing capability packs.")
@@ -186,6 +200,9 @@ def _add_role_commands(subparsers: Any) -> None:
     check.add_argument("role_id")
     check.add_argument("--version", type=int, default=None)
     check.add_argument("--store", default=".argus")
+
+    role_list = subparsers.add_parser("list", help="List all stored role packs.")
+    role_list.add_argument("--store", default=".argus")
 
 
 def _add_governance_commands(subparsers: Any) -> None:
@@ -242,6 +259,16 @@ def _add_modify_commands(subparsers: Any) -> None:
     report.add_argument("--store", default=".argus")
 
 
+def _add_query_commands(subparsers: Any) -> None:
+    contract = subparsers.add_parser("contract", help="Query contracts with related objects.")
+    contract.add_argument("contract_id")
+    contract.add_argument("--store", default=".argus")
+
+    role = subparsers.add_parser("role", help="Query a role with related packs and handoffs.")
+    role.add_argument("role_id")
+    role.add_argument("--store", default=".argus")
+
+
 def _add_pack_create_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--store", default=".argus")
     parser.add_argument("--pack-id", required=True)
@@ -265,6 +292,9 @@ def _add_asset_scan_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    if args.command == "mcp-serve":
+        return _mcp_serve(args)
+
     handlers = {
         ("contract", "draft"): _draft,
         ("contract", "start"): _start,
@@ -273,6 +303,7 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         ("contract", "score"): _score,
         ("contract", "render"): _render,
         ("contract", "bind-pack"): _contract_bind_pack,
+        ("contract", "list"): _contract_list,
         ("ledger", "ingest-contract"): _ledger_ingest_contract,
         ("ledger", "ingest-transcript"): _ledger_ingest_transcript,
         ("ledger", "list"): _ledger_list,
@@ -288,9 +319,11 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         ("packs", "inspect"): _packs_inspect,
         ("packs", "check"): _packs_check,
         ("packs", "advise"): _packs_advise,
+        ("packs", "list"): _packs_list,
         ("roles", "create-pack"): _roles_create_pack,
         ("roles", "inspect-pack"): _roles_inspect_pack,
         ("roles", "check-pack"): _roles_check_pack,
+        ("roles", "list"): _roles_list,
         ("governance", "report"): _governance_report,
         ("resolve", "run"): _resolve_run,
         ("resolve", "report"): _resolve_report,
@@ -301,6 +334,8 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         ("modify", "rollback"): _modify_rollback,
         ("modify", "audit-log"): _modify_audit_log,
         ("modify", "report"): _modify_report,
+        ("query", "contract"): _query_contract,
+        ("query", "role"): _query_role,
     }
     subcommand = getattr(args, f"{args.command}_command")
     try:
@@ -625,6 +660,39 @@ def _modify_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _contract_list(args: argparse.Namespace) -> int:
+    _print_json([c.to_dict() for c in _storage(args).list_contracts()])
+    return 0
+
+
+def _packs_list(args: argparse.Namespace) -> int:
+    _print_json([p.to_dict() for p in CapabilityPackStore(_paths(args).capability_packs_dir).list_latest()])
+    return 0
+
+
+def _roles_list(args: argparse.Namespace) -> int:
+    pack_store = CapabilityPackStore(_paths(args).capability_packs_dir)
+    _print_json([r.to_dict() for r in RolePackStore(_paths(args).role_packs_dir, pack_store).list_latest()])
+    return 0
+
+
+def _query_contract(args: argparse.Namespace) -> int:
+    results = _query_application(args).query_contracts(contract_id=args.contract_id)
+    _print_json(results)
+    return 0
+
+
+def _query_role(args: argparse.Namespace) -> int:
+    results = _query_application(args).query_roles(role_id=args.role_id)
+    _print_json(results)
+    return 0
+
+
+def _mcp_serve(args: argparse.Namespace) -> int:
+    MCPServer(store=args.store).serve()
+    return 0
+
+
 def _parse_field_updates(fields: list[str]) -> dict[str, Any]:
     updates: dict[str, Any] = {}
     for f in fields:
@@ -690,6 +758,21 @@ def _resolution_application(args: argparse.Namespace) -> ResolutionApplication:
         role_store,
         _storage(args),
         _paths(args).resolution_reports_dir,
+    )
+
+
+def _query_application(args: argparse.Namespace) -> QueryApplication:
+    p = _paths(args)
+    pack_store = CapabilityPackStore(p.capability_packs_dir)
+    role_store = RolePackStore(p.role_packs_dir, pack_store)
+    return QueryApplication(
+        _storage(args),
+        _event_ledger(args),
+        _learning_ledger(args),
+        _asset_inventory(args),
+        pack_store,
+        role_store,
+        HandoffManager(p.handoffs_dir),
     )
 
 

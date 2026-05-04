@@ -59,3 +59,7 @@ class ArgusPaths:
     @property
     def modifications_reports_dir(self) -> Path:
         return self.root / "modifications" / "reports"
+
+    @property
+    def handoffs_dir(self) -> Path:
+        return self.root / "handoffs"

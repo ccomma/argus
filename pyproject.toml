@@ -12,3 +12,4 @@ dependencies = []
 
 [project.scripts]
 argus = "argus.cli:main"
+argus-mcp = "argus.mcp.__main__:main"
