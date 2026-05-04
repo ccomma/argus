@@ -28,7 +28,12 @@ from argus.ledger import EventLedger, LearningLedger
 from argus.maintenance import MaintenanceEngine, MaintenanceReporter
 from argus.mcp import MCPServer
 from argus.paths import ArgusPaths
+from argus.playbook import PlaybookRegistry
+from argus.security import SecurityScanner
 from argus.storage import ContractStorage
+from argus.strategy import PolicyEngine, StrategyConfig
+from argus.versioning import VersionLock
+from argus.web import WebServer
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -73,6 +78,27 @@ def main(argv: list[str] | None = None) -> int:
     mcp_serve.add_argument("--store", default=".argus")
     dashboard.add_argument("--store", default=".argus")
     _add_maintenance_commands(maintenance_subparsers)
+
+    web = subparsers.add_parser("web", help="Start the local Argus workbench web server.")
+    web.add_argument("--store", default=".argus")
+    web.add_argument("--host", default="127.0.0.1")
+    web.add_argument("--port", type=int, default=8765)
+
+    strategy = subparsers.add_parser("strategy", help="Strategy and policy configuration.")
+    strategy_subparsers = strategy.add_subparsers(dest="strategy_command", required=True)
+    _add_strategy_commands(strategy_subparsers)
+
+    playbook = subparsers.add_parser("playbook", help="Personal playbook commands.")
+    playbook_subparsers = playbook.add_subparsers(dest="playbook_command", required=True)
+    _add_playbook_commands(playbook_subparsers)
+
+    version_lock = subparsers.add_parser("version-lock", help="Capability version lock commands.")
+    version_lock_subparsers = version_lock.add_subparsers(dest="version_lock_command", required=True)
+    _add_version_lock_commands(version_lock_subparsers)
+
+    security = subparsers.add_parser("security", help="Security scanning commands.")
+    security_subparsers = security.add_subparsers(dest="security_command", required=True)
+    _add_security_commands(security_subparsers)
 
     args = parser.parse_args(argv)
     return _dispatch(parser, args)
@@ -274,6 +300,66 @@ def _add_maintenance_commands(subparsers: Any) -> None:
     report.add_argument("--store", default=".argus")
 
 
+def _add_strategy_commands(subparsers: Any) -> None:
+    show = subparsers.add_parser("show", help="Show current strategy configuration.")
+    show.add_argument("--store", default=".argus")
+
+    set_rule = subparsers.add_parser("set-rule", help="Set a policy rule.")
+    set_rule.add_argument("--action-type", required=True)
+    set_rule.add_argument("--risk-level", choices=("low", "medium", "high"), required=True)
+    set_rule.add_argument("--decision", choices=("auto", "ask", "block"), required=True)
+    set_rule.add_argument("--description", default="")
+    set_rule.add_argument("--store", default=".argus")
+
+    reset = subparsers.add_parser("reset", help="Reset strategy to defaults.")
+    reset.add_argument("--store", default=".argus")
+
+
+def _add_playbook_commands(subparsers: Any) -> None:
+    create = subparsers.add_parser("create", help="Create a personal playbook.")
+    create.add_argument("--name", required=True)
+    create.add_argument("--description", default="")
+    create.add_argument("--role", action="append", default=[], dest="roles")
+    create.add_argument("--tag", action="append", default=[], dest="tags")
+    create.add_argument("--store", default=".argus")
+
+    list_cmd = subparsers.add_parser("list", help="List personal playbooks.")
+    list_cmd.add_argument("--store", default=".argus")
+
+    show = subparsers.add_parser("show", help="Show a playbook.")
+    show.add_argument("playbook_id")
+    show.add_argument("--store", default=".argus")
+
+    delete = subparsers.add_parser("delete", help="Delete a playbook.")
+    delete.add_argument("playbook_id")
+    delete.add_argument("--store", default=".argus")
+
+
+def _add_version_lock_commands(subparsers: Any) -> None:
+    lock = subparsers.add_parser("lock", help="Lock a capability version.")
+    lock.add_argument("--asset-id", required=True)
+    lock.add_argument("--asset-type", required=True)
+    lock.add_argument("--source", required=True)
+    lock.add_argument("--version", required=True)
+    lock.add_argument("--reason", default="")
+    lock.add_argument("--store", default=".argus")
+
+    unlock = subparsers.add_parser("unlock", help="Unlock a capability version.")
+    unlock.add_argument("--asset-id", required=True)
+    unlock.add_argument("--store", default=".argus")
+
+    list_cmd = subparsers.add_parser("list", help="List all version locks.")
+    list_cmd.add_argument("--store", default=".argus")
+
+
+def _add_security_commands(subparsers: Any) -> None:
+    scan = subparsers.add_parser("scan", help="Scan content for prompt-injection and supply-chain risks.")
+    scan.add_argument("--content", default="")
+    scan.add_argument("--file", default="")
+    scan.add_argument("--source", default="")
+    scan.add_argument("--store", default=".argus")
+
+
 def _add_query_commands(subparsers: Any) -> None:
     contract = subparsers.add_parser("contract", help="Query contracts with related objects.")
     contract.add_argument("contract_id")
@@ -311,6 +397,8 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         return _mcp_serve(args)
     if args.command == "dashboard":
         return _dashboard(args)
+    if args.command == "web":
+        return _web_serve(args)
 
     handlers = {
         ("contract", "draft"): _draft,
@@ -355,8 +443,19 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         ("query", "role"): _query_role,
         ("maintenance", "run"): _maintenance_run,
         ("maintenance", "report"): _maintenance_report,
+        ("strategy", "show"): _strategy_show,
+        ("strategy", "set-rule"): _strategy_set_rule,
+        ("strategy", "reset"): _strategy_reset,
+        ("playbook", "create"): _playbook_create,
+        ("playbook", "list"): _playbook_list,
+        ("playbook", "show"): _playbook_show,
+        ("playbook", "delete"): _playbook_delete,
+        ("version-lock", "lock"): _version_lock_lock,
+        ("version-lock", "unlock"): _version_lock_unlock,
+        ("version-lock", "list"): _version_lock_list,
+        ("security", "scan"): _security_scan,
     }
-    subcommand = getattr(args, f"{args.command}_command")
+    subcommand = getattr(args, f"{args.command.replace('-', '_')}_command")
     try:
         handler = handlers.get((args.command, subcommand))
         if handler:
@@ -744,6 +843,120 @@ def _maintenance_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _web_serve(args: argparse.Namespace) -> int:
+    WebServer(store=args.store, host=args.host, port=args.port).serve()
+    return 0
+
+
+def _strategy_show(args: argparse.Namespace) -> int:
+    engine = _policy_engine(args)
+    _print_json(engine.config.to_dict())
+    return 0
+
+
+def _strategy_set_rule(args: argparse.Namespace) -> int:
+    from argus.strategy.models import ActionDecision, PolicyRule, RiskLevel
+    engine = _policy_engine(args)
+    rule = PolicyRule(
+        action_type=args.action_type,
+        risk_level=RiskLevel(args.risk_level),
+        decision=ActionDecision(args.decision),
+        description=args.description,
+    )
+    engine.add_rule(rule)
+    strategy_path = _paths(args).root / "strategy.json"
+    engine.save(strategy_path)
+    _print_json({"status": "ok", "action_type": args.action_type})
+    return 0
+
+
+def _strategy_reset(args: argparse.Namespace) -> int:
+    engine = PolicyEngine(StrategyConfig.default())
+    strategy_path = _paths(args).root / "strategy.json"
+    engine.save(strategy_path)
+    _print_json({"status": "ok", "message": "Strategy reset to defaults"})
+    return 0
+
+
+def _playbook_create(args: argparse.Namespace) -> int:
+    from argus.playbook import Playbook
+    p = _paths(args)
+    registry = PlaybookRegistry(p.root / "playbooks")
+    pb = Playbook.create(
+        name=args.name,
+        description=args.description,
+        roles=args.roles,
+        tags=args.tags,
+    )
+    registry.save(pb)
+    _print_json(pb.to_dict())
+    return 0
+
+
+def _playbook_list(args: argparse.Namespace) -> int:
+    p = _paths(args)
+    registry = PlaybookRegistry(p.root / "playbooks")
+    _print_json([pb.to_dict() for pb in registry.list_all()])
+    return 0
+
+
+def _playbook_show(args: argparse.Namespace) -> int:
+    p = _paths(args)
+    registry = PlaybookRegistry(p.root / "playbooks")
+    pb = registry.load(args.playbook_id)
+    if pb is None:
+        _print_json({"error": f"Playbook {args.playbook_id} not found"})
+        return 1
+    _print_json(pb.to_dict())
+    return 0
+
+
+def _playbook_delete(args: argparse.Namespace) -> int:
+    p = _paths(args)
+    registry = PlaybookRegistry(p.root / "playbooks")
+    ok = registry.delete(args.playbook_id)
+    _print_json({"deleted": ok})
+    return 0 if ok else 1
+
+
+def _version_lock_lock(args: argparse.Namespace) -> int:
+    lock = _version_lock(args)
+    entry = lock.lock(
+        asset_id=args.asset_id,
+        asset_type=args.asset_type,
+        source=args.source,
+        version=args.version,
+        reason=args.reason,
+    )
+    lock.save()
+    _print_json(entry.to_dict())
+    return 0
+
+
+def _version_lock_unlock(args: argparse.Namespace) -> int:
+    lock = _version_lock(args)
+    ok = lock.unlock(args.asset_id)
+    lock.save()
+    _print_json({"deleted": ok})
+    return 0 if ok else 1
+
+
+def _version_lock_list(args: argparse.Namespace) -> int:
+    lock = _version_lock(args)
+    _print_json([e.to_dict() for e in lock.list_locked()])
+    return 0
+
+
+def _security_scan(args: argparse.Namespace) -> int:
+    scanner = SecurityScanner()
+    content = args.content
+    if args.file:
+        content = Path(args.file).read_text(encoding="utf-8")
+    report = scanner.scan_capability(content=content, source=args.source, location=args.file or "cli")
+    _print_json(report.to_dict())
+    return 0
+
+
 def _parse_field_updates(fields: list[str]) -> dict[str, Any]:
     updates: dict[str, Any] = {}
     for f in fields:
@@ -852,6 +1065,14 @@ def _maintenance_engine(args: argparse.Namespace) -> MaintenanceEngine:
         role_store,
         _storage(args),
     )
+
+
+def _policy_engine(args: argparse.Namespace) -> PolicyEngine:
+    return PolicyEngine.load(_paths(args).root / "strategy.json")
+
+
+def _version_lock(args: argparse.Namespace) -> VersionLock:
+    return VersionLock.load(_paths(args).root / "locks" / "versions.json")
 
 
 def _modification_application(args: argparse.Namespace) -> ModificationApplication:
