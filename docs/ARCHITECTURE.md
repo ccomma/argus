@@ -910,9 +910,3 @@ python -m unittest tests/test_phase12_operating_system.py -v
 4. 创建对应的 Application 服务
 5. 在 CLI 中暴露命令
 6. 添加测试文件 `tests/test_{new_package}.py`
-
----
-
-> **文档生成**: 由 Claude Opus 4.7 生成  
-> **项目地址**: `codex-system/packages/argus`  
-> **当前状态**: 12 阶段全部完成，201 测试通过
