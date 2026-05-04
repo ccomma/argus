@@ -23,13 +23,16 @@ from argus.capability_packs import CapabilityPackStore, RolePackStore
 from argus.analytics import DashboardReporter, ROICalculator
 from argus.contracts import ContractSession, QuestionStrategy
 from argus.core import ArgusCore
+from argus.feedback import FeedbackLoop
 from argus.handoff import HandoffManager
 from argus.ledger import EventLedger, LearningLedger
+from argus.lifecycle import LifecycleLedger, state_machine_for
 from argus.maintenance import MaintenanceEngine, MaintenanceReporter
 from argus.mcp import MCPServer
 from argus.onboarding import OnboardingGenerator
 from argus.paths import ArgusPaths
 from argus.playbook import PlaybookRegistry
+from argus.registry import RegistryIndex
 from argus.security import SecurityScanner
 from argus.storage import ContractStorage
 from argus.strategy import PolicyEngine, StrategyConfig
@@ -109,6 +112,18 @@ def main(argv: list[str] | None = None) -> int:
     onboarding = subparsers.add_parser("onboarding", help="Repo onboarding pack commands.")
     onboarding_subparsers = onboarding.add_subparsers(dest="onboarding_command", required=True)
     _add_onboarding_commands(onboarding_subparsers)
+
+    lifecycle = subparsers.add_parser("lifecycle", help="Asset lifecycle management commands.")
+    lifecycle_subparsers = lifecycle.add_subparsers(dest="lifecycle_command", required=True)
+    _add_lifecycle_commands(lifecycle_subparsers)
+
+    registry = subparsers.add_parser("registry", help="Multi-registry capability discovery.")
+    registry_subparsers = registry.add_subparsers(dest="registry_command", required=True)
+    _add_registry_commands(registry_subparsers)
+
+    feedback = subparsers.add_parser("feedback", help="Closed-loop learning feedback commands.")
+    feedback_subparsers = feedback.add_subparsers(dest="feedback_command", required=True)
+    _add_feedback_commands(feedback_subparsers)
 
     args = parser.parse_args(argv)
     return _dispatch(parser, args)
@@ -423,6 +438,73 @@ def _add_onboarding_commands(subparsers: Any) -> None:
     generate.add_argument("--store", default=".argus")
 
 
+def _add_lifecycle_commands(subparsers: Any) -> None:
+    show = subparsers.add_parser("show", help="Show lifecycle state and available transitions.")
+    show.add_argument("--asset-id", required=True)
+    show.add_argument("--asset-type", default="capability")
+    show.add_argument("--current-state", default="draft")
+    show.add_argument("--store", default=".argus")
+
+    apply_cmd = subparsers.add_parser("apply", help="Apply a lifecycle transition to an asset.")
+    apply_cmd.add_argument("--asset-id", required=True)
+    apply_cmd.add_argument("--asset-type", required=True)
+    apply_cmd.add_argument("--action", required=True)
+    apply_cmd.add_argument("--from-state", required=True)
+    apply_cmd.add_argument("--triggered-by", default="argus-cli")
+    apply_cmd.add_argument("--reason", default="")
+    apply_cmd.add_argument("--store", default=".argus")
+
+    history = subparsers.add_parser("history", help="List lifecycle history for an asset.")
+    history.add_argument("--asset-id", required=True)
+    history.add_argument("--store", default=".argus")
+
+
+def _add_registry_commands(subparsers: Any) -> None:
+    search = subparsers.add_parser("search", help="Search the capability registry.")
+    search.add_argument("--name", default="")
+    search.add_argument("--type", default="", dest="entry_type")
+    search.add_argument("--tag", action="append", default=[], dest="tags")
+    search.add_argument("--min-quality", type=float, default=0.0)
+    search.add_argument("--max-risk", type=float, default=1.0)
+    search.add_argument("--store", default=".argus")
+
+    add = subparsers.add_parser("add", help="Add an entry to the registry index.")
+    add.add_argument("--entry-id", required=True)
+    add.add_argument("--name", required=True)
+    add.add_argument("--type", required=True, dest="entry_type")
+    add.add_argument("--source", required=True)
+    add.add_argument("--version", default="latest")
+    add.add_argument("--description", default="")
+    add.add_argument("--quality-score", type=float, default=0.5)
+    add.add_argument("--risk-score", type=float, default=0.0)
+    add.add_argument("--store", default=".argus")
+
+    list_cmd = subparsers.add_parser("list", help="List all registry entries.")
+    list_cmd.add_argument("--store", default=".argus")
+
+
+def _add_feedback_commands(subparsers: Any) -> None:
+    record = subparsers.add_parser("record", help="Record a feedback signal.")
+    record.add_argument("--source-type", required=True)
+    record.add_argument("--source-id", required=True)
+    record.add_argument("--signal-type", required=True)
+    record.add_argument("--target-type", required=True)
+    record.add_argument("--target-id", required=True)
+    record.add_argument("--strength", type=float, required=True)
+    record.add_argument("--store", default=".argus")
+
+    list_cmd = subparsers.add_parser("list", help="List feedback signals.")
+    list_cmd.add_argument("--target-type", default="")
+    list_cmd.add_argument("--target-id", default="")
+    list_cmd.add_argument("--signal-type", default="")
+    list_cmd.add_argument("--store", default=".argus")
+
+    recommend = subparsers.add_parser("recommend", help="Get recommendation for a target.")
+    recommend.add_argument("--target-type", required=True)
+    recommend.add_argument("--target-id", required=True)
+    recommend.add_argument("--store", default=".argus")
+
+
 def _add_query_commands(subparsers: Any) -> None:
     contract = subparsers.add_parser("contract", help="Query contracts with related objects.")
     contract.add_argument("contract_id")
@@ -526,6 +608,15 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         ("team", "policy"): _team_policy_show,
         ("team", "set-policy"): _team_policy_set,
         ("onboarding", "generate"): _onboarding_generate,
+        ("lifecycle", "show"): _lifecycle_show,
+        ("lifecycle", "apply"): _lifecycle_apply,
+        ("lifecycle", "history"): _lifecycle_history,
+        ("registry", "search"): _registry_search,
+        ("registry", "add"): _registry_add,
+        ("registry", "list"): _registry_list,
+        ("feedback", "record"): _feedback_record,
+        ("feedback", "list"): _feedback_list,
+        ("feedback", "recommend"): _feedback_recommend,
     }
     subcommand = getattr(args, f"{args.command.replace('-', '_')}_command")
     try:
@@ -1162,6 +1253,118 @@ def _load_team_policy(args: argparse.Namespace, team_id: str) -> TeamPolicy:
 def _save_team_policy(args: argparse.Namespace, policy: TeamPolicy) -> None:
     path = _paths(args).root / "teams" / "policies" / f"{policy.team_id}.json"
     policy.save(path)
+
+
+def _lifecycle_show(args: argparse.Namespace) -> int:
+    sm = state_machine_for(args.current_state)
+    _print_json({
+        "asset_id": args.asset_id,
+        "current_state": sm.current.value,
+        "available_actions": [a.value for a in sm.available_actions()],
+    })
+    return 0
+
+
+def _lifecycle_apply(args: argparse.Namespace) -> int:
+    from argus.lifecycle import AssetState, LifecycleAction, LifecycleRecord
+    from_state = AssetState(args.from_state)
+    sm = state_machine_for(args.from_state)
+    action = LifecycleAction(args.action)
+    try:
+        to_state = sm.apply(action)
+    except ValueError as exc:
+        _print_json({"error": str(exc)})
+        return 1
+    record = LifecycleRecord.create(
+        asset_id=args.asset_id,
+        asset_type=args.asset_type,
+        action=action,
+        from_state=from_state,
+        to_state=to_state,
+        triggered_by=args.triggered_by,
+        reason=args.reason,
+    )
+    ledger = LifecycleLedger(_paths(args).root / "lifecycle" / "ledger.jsonl")
+    ledger.append(record)
+    _print_json(record.to_dict())
+    return 0
+
+
+def _lifecycle_history(args: argparse.Namespace) -> int:
+    ledger = LifecycleLedger(_paths(args).root / "lifecycle" / "ledger.jsonl")
+    records = ledger.for_asset(args.asset_id)
+    _print_json([r.to_dict() for r in records])
+    return 0
+
+
+def _registry_search(args: argparse.Namespace) -> int:
+    idx = RegistryIndex.load(_paths(args).root / "registry" / "index.json")
+    results = idx.search(
+        name=args.name,
+        entry_type=args.entry_type,
+        tags=args.tags if args.tags else None,
+        min_quality=args.min_quality,
+        max_risk=args.max_risk,
+    )
+    _print_json([r.to_dict() for r in results])
+    return 0
+
+
+def _registry_add(args: argparse.Namespace) -> int:
+    from argus.registry import RegistryEntry
+    idx = RegistryIndex.load(_paths(args).root / "registry" / "index.json")
+    entry = RegistryEntry(
+        entry_id=args.entry_id,
+        name=args.name,
+        entry_type=args.entry_type,
+        source=args.source,
+        version=args.version,
+        description=args.description,
+        quality_score=args.quality_score,
+        risk_score=args.risk_score,
+    )
+    idx.add(entry)
+    idx.save(_paths(args).root / "registry" / "index.json")
+    _print_json(entry.to_dict())
+    return 0
+
+
+def _registry_list(args: argparse.Namespace) -> int:
+    idx = RegistryIndex.load(_paths(args).root / "registry" / "index.json")
+    _print_json([e.to_dict() for e in idx.entries])
+    return 0
+
+
+def _feedback_record(args: argparse.Namespace) -> int:
+    loop = FeedbackLoop(_paths(args).root / "feedback")
+    signal = loop.record(
+        source_type=args.source_type,
+        source_id=args.source_id,
+        signal_type=args.signal_type,
+        target_type=args.target_type,
+        target_id=args.target_id,
+        strength=args.strength,
+    )
+    _print_json(signal.to_dict())
+    return 0
+
+
+def _feedback_list(args: argparse.Namespace) -> int:
+    loop = FeedbackLoop(_paths(args).root / "feedback")
+    signals = loop.list_signals(
+        target_type=args.target_type,
+        target_id=args.target_id,
+        signal_type=args.signal_type,
+    )
+    _print_json([s.to_dict() for s in signals])
+    return 0
+
+
+def _feedback_recommend(args: argparse.Namespace) -> int:
+    loop = FeedbackLoop(_paths(args).root / "feedback")
+    rec = loop.compute_recommendation(args.target_type, args.target_id)
+    _print_json(rec)
+    return 0
 
 
 def _parse_field_updates(fields: list[str]) -> dict[str, Any]:
