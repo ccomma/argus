@@ -27,11 +27,13 @@ from argus.handoff import HandoffManager
 from argus.ledger import EventLedger, LearningLedger
 from argus.maintenance import MaintenanceEngine, MaintenanceReporter
 from argus.mcp import MCPServer
+from argus.onboarding import OnboardingGenerator
 from argus.paths import ArgusPaths
 from argus.playbook import PlaybookRegistry
 from argus.security import SecurityScanner
 from argus.storage import ContractStorage
 from argus.strategy import PolicyEngine, StrategyConfig
+from argus.team import Team, TeamCatalog, TeamCatalogManager, TeamMember, TeamPolicy
 from argus.versioning import VersionLock
 from argus.web import WebServer
 
@@ -99,6 +101,14 @@ def main(argv: list[str] | None = None) -> int:
     security = subparsers.add_parser("security", help="Security scanning commands.")
     security_subparsers = security.add_subparsers(dest="security_command", required=True)
     _add_security_commands(security_subparsers)
+
+    team = subparsers.add_parser("team", help="Team management commands.")
+    team_subparsers = team.add_subparsers(dest="team_command", required=True)
+    _add_team_commands(team_subparsers)
+
+    onboarding = subparsers.add_parser("onboarding", help="Repo onboarding pack commands.")
+    onboarding_subparsers = onboarding.add_subparsers(dest="onboarding_command", required=True)
+    _add_onboarding_commands(onboarding_subparsers)
 
     args = parser.parse_args(argv)
     return _dispatch(parser, args)
@@ -360,6 +370,59 @@ def _add_security_commands(subparsers: Any) -> None:
     scan.add_argument("--store", default=".argus")
 
 
+def _add_team_commands(subparsers: Any) -> None:
+    create = subparsers.add_parser("create", help="Create a team.")
+    create.add_argument("--team-id", required=True)
+    create.add_argument("--name", required=True)
+    create.add_argument("--description", default="")
+    create.add_argument("--store", default=".argus")
+
+    add_member = subparsers.add_parser("add-member", help="Add a member to a team.")
+    add_member.add_argument("--team-id", required=True)
+    add_member.add_argument("--member-id", required=True)
+    add_member.add_argument("--name", required=True)
+    add_member.add_argument("--role", choices=("owner", "admin", "member", "viewer"), default="member")
+    add_member.add_argument("--store", default=".argus")
+
+    remove_member = subparsers.add_parser("remove-member", help="Remove a member from a team.")
+    remove_member.add_argument("--team-id", required=True)
+    remove_member.add_argument("--member-id", required=True)
+    remove_member.add_argument("--store", default=".argus")
+
+    show = subparsers.add_parser("show", help="Show team details.")
+    show.add_argument("--team-id", required=True)
+    show.add_argument("--store", default=".argus")
+
+    list_cmd = subparsers.add_parser("list", help="List all teams.")
+    list_cmd.add_argument("--store", default=".argus")
+
+    catalog = subparsers.add_parser("catalog", help="Show team catalog stats.")
+    catalog.add_argument("--team-id", required=True)
+    catalog.add_argument("--store", default=".argus")
+
+    policy_show = subparsers.add_parser("policy", help="Show team policy.")
+    policy_show.add_argument("--team-id", required=True)
+    policy_show.add_argument("--store", default=".argus")
+
+    policy_set = subparsers.add_parser("set-policy", help="Set team policy.")
+    policy_set.add_argument("--team-id", required=True)
+    policy_set.add_argument("--allow-self-enrollment", action="store_true", default=None)
+    policy_set.add_argument("--require-approval-for-install", action="store_true", default=None)
+    policy_set.add_argument("--shared-contract-templates", action="store_true", default=None)
+    policy_set.add_argument("--shared-role-packs", action="store_true", default=None)
+    policy_set.add_argument("--auto-install-trusted", action="store_true", default=None)
+    policy_set.add_argument("--blocked-source", action="append", default=[], dest="blocked_sources")
+    policy_set.add_argument("--allowed-source", action="append", default=[], dest="allowed_sources")
+    policy_set.add_argument("--store", default=".argus")
+
+
+def _add_onboarding_commands(subparsers: Any) -> None:
+    generate = subparsers.add_parser("generate", help="Generate an onboarding pack for a repo.")
+    generate.add_argument("--repo-name", required=True)
+    generate.add_argument("--team-id", default="")
+    generate.add_argument("--store", default=".argus")
+
+
 def _add_query_commands(subparsers: Any) -> None:
     contract = subparsers.add_parser("contract", help="Query contracts with related objects.")
     contract.add_argument("contract_id")
@@ -454,6 +517,15 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         ("version-lock", "unlock"): _version_lock_unlock,
         ("version-lock", "list"): _version_lock_list,
         ("security", "scan"): _security_scan,
+        ("team", "create"): _team_create,
+        ("team", "add-member"): _team_add_member,
+        ("team", "remove-member"): _team_remove_member,
+        ("team", "show"): _team_show,
+        ("team", "list"): _team_list,
+        ("team", "catalog"): _team_catalog,
+        ("team", "policy"): _team_policy_show,
+        ("team", "set-policy"): _team_policy_set,
+        ("onboarding", "generate"): _onboarding_generate,
     }
     subcommand = getattr(args, f"{args.command.replace('-', '_')}_command")
     try:
@@ -955,6 +1027,141 @@ def _security_scan(args: argparse.Namespace) -> int:
     report = scanner.scan_capability(content=content, source=args.source, location=args.file or "cli")
     _print_json(report.to_dict())
     return 0
+
+
+def _team_create(args: argparse.Namespace) -> int:
+    team = Team.create(args.team_id, args.name, args.description)
+    _team_store(args).mkdir(parents=True, exist_ok=True)
+    _save_team(args, team)
+    _print_json(team.to_dict())
+    return 0
+
+
+def _team_add_member(args: argparse.Namespace) -> int:
+    from argus.team.models import MemberRole
+    team = _load_team(args, args.team_id)
+    if team is None:
+        _print_json({"error": f"Team {args.team_id} not found"})
+        return 1
+    member = TeamMember(member_id=args.member_id, name=args.name, role=MemberRole(args.role))
+    team.add_member(member)
+    _save_team(args, team)
+    _print_json(team.to_dict())
+    return 0
+
+
+def _team_remove_member(args: argparse.Namespace) -> int:
+    team = _load_team(args, args.team_id)
+    if team is None:
+        _print_json({"error": f"Team {args.team_id} not found"})
+        return 1
+    ok = team.remove_member(args.member_id)
+    _save_team(args, team)
+    _print_json({"removed": ok})
+    return 0 if ok else 1
+
+
+def _team_show(args: argparse.Namespace) -> int:
+    team = _load_team(args, args.team_id)
+    if team is None:
+        _print_json({"error": f"Team {args.team_id} not found"})
+        return 1
+    _print_json(team.to_dict())
+    return 0
+
+
+def _team_list(args: argparse.Namespace) -> int:
+    store = _team_store(args)
+    teams = []
+    if store.exists():
+        for f in sorted(store.glob("*.json")):
+            teams.append(Team.from_dict(json.loads(f.read_text(encoding="utf-8"))).to_dict())
+    _print_json(teams)
+    return 0
+
+
+def _team_catalog(args: argparse.Namespace) -> int:
+    p = _paths(args)
+    catalog_mgr = TeamCatalogManager(p.root / "teams" / "catalogs")
+    pack_store = CapabilityPackStore(p.capability_packs_dir)
+    role_store = RolePackStore(p.role_packs_dir, pack_store)
+    stats = catalog_mgr.compute_stats(
+        args.team_id, _storage(args), _asset_inventory(args), pack_store, role_store,
+    )
+    _print_json(stats)
+    return 0
+
+
+def _team_policy_show(args: argparse.Namespace) -> int:
+    policy = _load_team_policy(args, args.team_id)
+    _print_json(policy.to_dict())
+    return 0
+
+
+def _team_policy_set(args: argparse.Namespace) -> int:
+    policy = _load_team_policy(args, args.team_id)
+    if args.allow_self_enrollment is not None:
+        policy.allow_self_enrollment = args.allow_self_enrollment
+    if args.require_approval_for_install is not None:
+        policy.require_approval_for_install = args.require_approval_for_install
+    if args.shared_contract_templates is not None:
+        policy.shared_contract_templates = args.shared_contract_templates
+    if args.shared_role_packs is not None:
+        policy.shared_role_packs = args.shared_role_packs
+    if args.auto_install_trusted is not None:
+        policy.auto_install_trusted = args.auto_install_trusted
+    if args.blocked_sources:
+        policy.blocked_sources.extend(args.blocked_sources)
+    if args.allowed_sources:
+        policy.allowed_sources.extend(args.allowed_sources)
+    _save_team_policy(args, policy)
+    _print_json(policy.to_dict())
+    return 0
+
+
+def _onboarding_generate(args: argparse.Namespace) -> int:
+    p = _paths(args)
+    pack_store = CapabilityPackStore(p.capability_packs_dir)
+    role_store = RolePackStore(p.role_packs_dir, pack_store)
+    catalog_mgr = TeamCatalogManager(p.root / "teams" / "catalogs")
+    gen = OnboardingGenerator(
+        _storage(args), _asset_inventory(args), pack_store, role_store, catalog_mgr,
+    )
+    policy = None
+    if args.team_id:
+        policy = _load_team_policy(args, args.team_id)
+    pack = gen.generate(args.repo_name, args.team_id, policy)
+    out_dir = p.root / "onboarding"
+    md_path = gen.save(pack, out_dir)
+    _print_json({"markdown_path": str(md_path), "pack": pack.to_dict()})
+    return 0
+
+
+def _team_store(args: argparse.Namespace) -> Path:
+    return _paths(args).root / "teams"
+
+
+def _save_team(args: argparse.Namespace, team: Team) -> None:
+    path = _team_store(args) / f"{team.team_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(team.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _load_team(args: argparse.Namespace, team_id: str) -> Team | None:
+    path = _team_store(args) / f"{team_id}.json"
+    if path.exists():
+        return Team.from_dict(json.loads(path.read_text(encoding="utf-8")))
+    return None
+
+
+def _load_team_policy(args: argparse.Namespace, team_id: str) -> TeamPolicy:
+    path = _paths(args).root / "teams" / "policies" / f"{team_id}.json"
+    return TeamPolicy.load(path)
+
+
+def _save_team_policy(args: argparse.Namespace, policy: TeamPolicy) -> None:
+    path = _paths(args).root / "teams" / "policies" / f"{policy.team_id}.json"
+    policy.save(path)
 
 
 def _parse_field_updates(fields: list[str]) -> dict[str, Any]:
