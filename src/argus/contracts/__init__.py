@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+"""合同子系统模块。
+
+提供工作合同（WorkContract）的定义、澄清问题策略、交付物合约、
+交付物渲染和评估，以及证据事件的全套模型和工具。
+"""
+
 from argus.contracts.models import (
     CONTRACT_FIELDS,
     QUESTION_PRIORITY,

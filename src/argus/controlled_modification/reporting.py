@@ -1,3 +1,5 @@
+"""受控修改报告生成器，输出审计日志、快照和差异的 Markdown/JSON 双格式报告。"""
+
 from __future__ import annotations
 
 import json
@@ -7,6 +9,13 @@ from .models import AssetDiff, ModificationAuditRecord, ModificationReport, Modi
 
 
 class ModificationReporter:
+    """修改报告生成器，汇总审计记录、快照和差异数据。
+
+    输出两个文件：
+    - modifications-report.md：Markdown 格式，含审计日志和差异详情
+    - modifications-report.json：结构化数据
+    """
+
     def __init__(self, reports_dir: Path) -> None:
         self.reports_dir = reports_dir
 
@@ -16,6 +25,13 @@ class ModificationReporter:
         snapshots: list[ModificationSnapshot] = (),
         diffs: list[AssetDiff] = (),
     ) -> ModificationReport:
+        """生成双格式修改报告。
+
+        1. 确保输出目录存在
+        2. 按操作类型和结果分类汇总
+        3. 生成 Markdown（含 diff 代码块，最多展示前 40 行）
+        4. 写入 JSON 数据文件
+        """
         self.reports_dir.mkdir(parents=True, exist_ok=True)
 
         summary = {
@@ -61,6 +77,7 @@ class ModificationReporter:
                 f"(snapshot: {r.snapshot_id}, diff: {r.diff_id})"
             )
 
+        # diff 详情区域，限制每项最多展示 40 行避免报告过于冗长
         if diffs:
             md_lines.extend(["", "## Diffs", ""])
             for d in diffs:
@@ -83,6 +100,7 @@ class ModificationReporter:
 
 
 def _count_by(items: list, attr: str) -> dict[str, int]:
+    """按指定属性值分组计数，用于生成摘要统计。"""
     counts: dict[str, int] = {}
     for item in items:
         key = getattr(item, attr, "unknown")

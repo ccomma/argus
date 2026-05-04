@@ -1,3 +1,5 @@
+"""仪表盘报告生成器，将三大维度的 ROI 指标输出为 Markdown 和 JSON 格式。"""
+
 from __future__ import annotations
 
 import json
@@ -8,10 +10,23 @@ from .models import DashboardReport
 
 
 class DashboardReporter:
+    """仪表盘报告生成器，从 ROICalculator 读取指标并生成双格式报告。
+
+    输出：
+    - dashboard.json：结构化数据，便于程序消费和趋势追踪
+    - dashboard.md：可读的 Markdown 报告，适合人工审阅
+    """
+
     def __init__(self, reports_dir: str | Path) -> None:
         self.reports_dir = Path(reports_dir)
 
     def write(self, calculator: ROICalculator, *, maintenance_summary: dict | None = None) -> DashboardReport:
+        """生成仪表盘报告。
+
+        1. 调用 ROICalculator 获取三大维度指标
+        2. 可选地合并维护摘要（来自 MaintenanceEngine）
+        3. 生成 Markdown 和 JSON 双格式文件
+        """
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         contract_roi = calculator.contract_roi()
         learning_roi = calculator.learning_roi()
@@ -41,6 +56,7 @@ class DashboardReporter:
 def _dashboard_markdown(
     contract_roi, learning_roi, role_roi, maintenance: dict | None
 ) -> str:
+    """将 ROI 指标渲染为 Markdown 格式的仪表盘文本。"""
     lines = [
         "# Argus Dashboard",
         "",

@@ -1,3 +1,5 @@
+"""团队策略 - 控制安装权限、共享策略、来源黑白名单和例外规则，影响团队能力治理行为。"""
+
 from __future__ import annotations
 
 import json
@@ -10,6 +12,14 @@ from argus.team.models import MemberRole, Permission, Team
 
 @dataclass
 class TeamPolicy:
+    """团队治理策略：定义安装审批、合约/角色共享、版本来源管控和例外规则。
+
+    核心决策方法：
+    - can_install: 基于来源黑白名单和成员角色判断是否允许安装
+    - can_share_contract / can_share_role: 基于共享开关和角色判断
+    """
+
+    team_id: str
     team_id: str
     default_member_role: str = "member"
     allow_self_enrollment: bool = False
@@ -22,6 +32,13 @@ class TeamPolicy:
     exception_rules: list[dict[str, Any]] = field(default_factory=list)
 
     def can_install(self, source: str, member_role: MemberRole) -> bool:
+        """判断指定来源的能力是否可被该角色安装。
+
+        1. 被阻止的来源直接拒绝
+        2. 被允许的来源直接放行
+        3. OWNER/ADMIN 始终可安装
+        4. 其余需查看 require_approval_for_install 开关
+        """
         if source in self.blocked_sources:
             return False
         if source in self.allowed_sources:

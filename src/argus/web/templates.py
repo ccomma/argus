@@ -1,7 +1,10 @@
+"""Web 工作台 HTML 模板 - 定义 CSS 主题（暗色 GitHub 风格）和 11 个页面渲染函数。"""
+
 from __future__ import annotations
 
 import json
 
+# 暗色主题 CSS，模仿 GitHub Dark 风格，统一视觉语言
 CSS = """
 :root {
   --bg: #0d1117; --fg: #c9d1d9; --border: #30363d;
@@ -53,6 +56,12 @@ textarea { min-height: 100px; resize: vertical; }
 
 
 def _page(title: str, content: str, active_nav: str = "") -> str:
+    """组装完整 HTML 页面，含导航栏、CSS 和内联内容。
+
+    1. 构建 11 项导航链接列表
+    2. 高亮当前活跃页（active CSS class）
+    3. 拼接完整的 HTML5 结构返回
+    """
     nav_items = [
         ("/", "Dashboard"),
         ("/contracts", "Contracts"),
@@ -82,10 +91,12 @@ def _page(title: str, content: str, active_nav: str = "") -> str:
 
 
 def _json_block(data) -> str:
+    """将数据格式化为带缩进的 JSON 代码块，用 <pre> 标签包裹。"""
     return f"<pre>{json.dumps(data, indent=2, default=str)}</pre>"
 
 
 def render_dashboard_page(s: "WebServer") -> str:
+    """渲染 Dashboard 首页：左侧显合约/学习/角色/Handoff 统计卡片，下方显 ROI 详情。"""
     from argus.analytics import DashboardReporter
     d = DashboardReporter(s._paths.root / "reports").write(s.roi)
     cr = d.contract_roi
@@ -128,6 +139,7 @@ def render_dashboard_page(s: "WebServer") -> str:
 
 
 def render_contract_page(s: "WebServer") -> str:
+    """渲染合约列表页：展示所有工作合约的 ID、意图摘要、状态和 JSON 链接。"""
     contracts = s.storage.list_contracts()
     rows = ""
     for c in contracts:
@@ -147,6 +159,7 @@ def render_contract_page(s: "WebServer") -> str:
 
 
 def render_role_page(s: "WebServer") -> str:
+    """渲染角色页：列出所有角色包，显示角色 ID 和名称。"""
     roles = s.role_store.list_latest()
     rows = ""
     for r in roles:
@@ -164,6 +177,7 @@ def render_role_page(s: "WebServer") -> str:
 
 
 def render_pack_page(s: "WebServer") -> str:
+    """渲染能力包页：列出所有能力包，显示包 ID 和版本。"""
     packs = s.pack_store.list_latest()
     rows = ""
     for p in packs:
@@ -181,6 +195,7 @@ def render_pack_page(s: "WebServer") -> str:
 
 
 def render_asset_page(s: "WebServer") -> str:
+    """渲染资产页：列出所有能力资产，含名称、类型、状态标签和 JSON 链接。"""
     assets = s.inventory.list_assets()
     rows = ""
     for a in assets:
@@ -199,6 +214,7 @@ def render_asset_page(s: "WebServer") -> str:
 
 
 def render_learning_page(s: "WebServer") -> str:
+    """渲染学习页：列出候选人学习条目，含摘要、类型和状态标签。"""
     learnings = s.learning_ledger.list_learnings()
     rows = ""
     for lrn in learnings:
@@ -218,6 +234,7 @@ def render_learning_page(s: "WebServer") -> str:
 
 
 def render_maintenance_page(s: "WebServer") -> str:
+    """渲染维护页：显示维护摘要卡片（重复数、冲突、废弃项等）和完整 JSON 报告。"""
     report = s.maintenance.run()
     content = f"""<h2>Maintenance Report</h2>
 <div class="grid">
@@ -233,6 +250,7 @@ def render_maintenance_page(s: "WebServer") -> str:
 
 
 def render_strategy_page(s: "WebServer") -> str:
+    """渲染策略页：以表格展示所有策略规则（动作、风险等级、决策、描述），附原始配置 JSON。"""
     config = s.policy_engine.config
     rules_html = ""
     for i, r in enumerate(config.rules):
@@ -252,6 +270,7 @@ def render_strategy_page(s: "WebServer") -> str:
 
 
 def render_playbook_page(s: "WebServer") -> str:
+    """渲染 Playbook 页：列出所有个人 playbook，含名称、描述、版本和角色数。"""
     playbooks = s.playbook_registry.list_all()
     rows = ""
     for pb in playbooks:
@@ -269,6 +288,7 @@ def render_playbook_page(s: "WebServer") -> str:
 
 
 def render_security_page(s: "WebServer") -> str:
+    """渲染安全扫描页：提供一个表单用于粘贴能力内容进行安全扫描，结果通过 JS fetch 异步展示。"""
     content = f"""<h2>Security Scanner</h2>
 <div class="card">
 <h3>Scan Capability Content</h3>
@@ -298,6 +318,7 @@ async function scanContent() {{
 
 
 def render_handoff_page(s: "WebServer") -> str:
+    """渲染 Handoff 页：列出角色交接记录，含来源角色、目标角色、关联合约和原因。"""
     handoffs = s.handoff_mgr.list_all()
     rows = ""
     for h in handoffs:

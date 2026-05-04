@@ -1,11 +1,9 @@
 # Local design memory, roadmap, planning, and session-context documents.
 DESIGN.md
-docs/
 
 # Agent and conversation context that may be useful locally but should not be
 # part of development commits.
 AGENTS.md
-CLAUDE.md
 GEMINI.md
 SOUL.md
 HEARTBEAT.md
@@ -14,6 +12,7 @@ transcripts/
 sessions/
 context/
 .codex/
+.claude/
 .agents/
 .argus/
 .idea
@@ -36,3 +35,4 @@ node_modules/
 .venv/
 __pycache__/
 *.pyc
+*.egg-info/

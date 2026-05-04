@@ -1,3 +1,5 @@
+"""受控修改子系统入口，导出「快照-差异-审计-回滚」安全变更管线。"""
+
 from __future__ import annotations
 
 from argus.controlled_modification.audit import AuditLedger

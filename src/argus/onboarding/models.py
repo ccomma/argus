@@ -1,3 +1,5 @@
+"""入职包模型 - OnboardingPack 数据类，包含入职规则、能力需求、推荐角色和 Markdown 渲染。"""
+
 from __future__ import annotations
 
 import hashlib
@@ -10,6 +12,17 @@ from typing import Any
 
 @dataclass(frozen=True)
 class OnboardingPack:
+    """仓库入职包：为新仓库生态生成的能力入职指南。
+
+    包含：
+    - 规则列表（来自库存和合约）
+    - 必需能力和推荐能力包
+    - 推荐角色
+    - 合约模板和初始化步骤
+    - render_markdown 输出可读报告
+    """
+
+    pack_id: str
     pack_id: str
     repo_name: str
     team_id: str = ""
@@ -51,6 +64,11 @@ class OnboardingPack:
         )
 
     def render_markdown(self) -> str:
+        """将入职包渲染为 Markdown 文档，方便人阅读和共享。
+
+        1. 输出标题和生成时间
+        2. 逐块输出规则、必需能力、推荐包、推荐角色和初始化步骤
+        """
         lines = [
             f"# Onboarding Pack: {self.repo_name}",
             "",

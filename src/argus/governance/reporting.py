@@ -1,5 +1,17 @@
 from __future__ import annotations
 
+"""治理报告生成模块。
+
+提供 GovernanceReporter 类——从各方数据源（合同存储、学习账本、
+资产清单、能力包、角色包）聚合信息，生成综合性的治理报告。
+
+报告包含四大组成部分：
+1. 治理发现（findings）：系统性地发现重复、过期、风险、合同和角色问题
+2. 待处理操作（pending_actions）：从发现中提炼的可执行操作
+3. 低风险维护日志（low_risk_log）：只读操作的审计记录
+4. 汇总统计（summary）：各系统组件的计数概况
+"""
+
 import json
 from pathlib import Path
 from typing import Any
@@ -13,7 +25,19 @@ from .models import GovernanceFinding, GovernanceReportResult, PendingAction
 
 
 class GovernanceReporter:
+    """治理报告生成器。
+
+    作为 Argus 系统治理层的核心组件，定期（或按需）生成
+    全面的系统健康度报告。报告覆盖合同的完整性、资产的健康状态、
+    能力包的合理性以及学习项的重复情况。
+    """
+
     def __init__(self, reports_dir: str | Path) -> None:
+        """初始化治理报告器。
+
+        Args:
+            reports_dir: 报告输出目录
+        """
         self.reports_dir = Path(reports_dir)
 
     def write(
@@ -25,6 +49,23 @@ class GovernanceReporter:
         pack_store: CapabilityPackStore,
         role_store: RolePackStore,
     ) -> GovernanceReportResult:
+        """生成完整的治理报告。
+
+        流程：
+        1. 从各数据源加载数据（资产、学习项、合同、能力包、角色包）
+        2. 运行五类发现检查：
+           a. _dedupe_findings: 检测重复资产和学习项
+           b. _stale_asset_findings: 检测过期资产
+           c. _risk_findings: 检测高风险资产和能力包
+           d. _contract_findings: 检测合同完整性问题和评估缺口
+           e. _role_findings: 检测角色包配置问题
+        3. 从发现中提炼待处理操作
+        4. 生成低风险维护日志
+        5. 输出四份文件（Markdown 报告、JSON 报告、低风险日志、待处理操作）
+
+        这种分层发现机制确保每类问题由专用的检查函数处理，
+        便于单独测试和扩展。
+        """
         assets = inventory.list_assets()
         learnings = learning_ledger.list_items()
         contracts = contract_storage.list_contracts()
@@ -71,6 +112,11 @@ def _findings(
     pack_store: CapabilityPackStore,
     role_store: RolePackStore,
 ) -> list[GovernanceFinding]:
+    """汇总所有治理发现。
+
+    依次执行五类检查并汇总结果。每类检查相互独立，
+    可以单独扩展或禁用某一类而不影响其他。
+    """
     findings: list[GovernanceFinding] = []
     findings.extend(_dedupe_findings(assets, learnings))
     findings.extend(_stale_asset_findings(assets))
@@ -81,6 +127,11 @@ def _findings(
 
 
 def _dedupe_findings(assets: list[CapabilityAsset], learnings: list[CandidateLearningItem]) -> list[GovernanceFinding]:
+    """检测重复的资产和学习项。
+
+    资产重复：通过 find_potential_duplicates 发现同名但不同 ID 的资产。
+    学习项重复：通过 (summary, type, reverse_learning_target) 三元组去重检测。
+    """
     findings: list[GovernanceFinding] = []
     for group in find_potential_duplicates(assets):
         findings.append(
@@ -110,6 +161,11 @@ def _dedupe_findings(assets: list[CapabilityAsset], learnings: list[CandidateLea
 
 
 def _stale_asset_findings(assets: list[CapabilityAsset]) -> list[GovernanceFinding]:
+    """检测过期资产（状态非 ACTIVE）。
+
+    任何标记为 archived/disabled/isolated/deprecated 的资产
+    都会被报告，建议审查依赖这些资产的包是否需要更新。
+    """
     return [
         GovernanceFinding(
             category="stale",
@@ -124,6 +180,11 @@ def _stale_asset_findings(assets: list[CapabilityAsset]) -> list[GovernanceFindi
 
 
 def _risk_findings(assets: list[CapabilityAsset], pack_store: CapabilityPackStore) -> list[GovernanceFinding]:
+    """检测高风险资产和能力包。
+
+    资产风险：risk_score >= 0.5 的标记为 medium，>= 0.7 的标记为 high。
+    能力包风险：aggregate_risk_tier_snapshot 为 high 或 critical 的包。
+    """
     findings = [
         GovernanceFinding(
             category="risk",
@@ -150,6 +211,12 @@ def _risk_findings(assets: list[CapabilityAsset], pack_store: CapabilityPackStor
 
 
 def _contract_findings(contract_storage: ContractStorage, contracts: list[Any]) -> list[GovernanceFinding]:
+    """检测合同相关的问题。
+
+    两类检查：
+    1. 合同完整性不足（completeness_score < 0.85）
+    2. 交付物评估发现缺失项
+    """
     findings: list[GovernanceFinding] = []
     for contract in contracts:
         if contract.completeness_score.overall_score < 0.85:
@@ -177,6 +244,13 @@ def _contract_findings(contract_storage: ContractStorage, contracts: list[Any]) 
 
 
 def _role_findings(role_store: RolePackStore) -> list[GovernanceFinding]:
+    """检测角色包配置问题。
+
+    三类检查：
+    1. 没有必选能力包的角色（可能是未完成配置）
+    2. 高风险角色（risk_level 为 high 或 critical）
+    3. 正常的角色（记录为低优先级观察）
+    """
     findings: list[GovernanceFinding] = []
     for role_pack in role_store.list_latest():
         if not role_pack.required_pack_refs:
@@ -213,6 +287,13 @@ def _role_findings(role_store: RolePackStore) -> list[GovernanceFinding]:
 
 
 def _pending_actions(findings: list[GovernanceFinding]) -> list[PendingAction]:
+    """从治理发现中提炼待处理操作。
+
+    三类操作映射：
+    1. 合同问题 → question_strategy_improvement 或 deliverable_contract_improvement
+    2. 去重/过期/风险/角色问题 → {category}_review
+    3. 低严重度操作不需要人工确认（requires_confirmation=False）
+    """
     actions = [
         PendingAction(
             type="question_strategy_improvement",
@@ -254,6 +335,11 @@ def _low_risk_log(
     learnings: list[CandidateLearningItem],
     assets: list[CapabilityAsset],
 ) -> list[dict[str, Any]]:
+    """生成低风险维护日志。
+
+    记录只读性质的操作（如生成报告、扫描信号），
+    这些操作不产生副作用但提供了审计透明度。
+    """
     return [
         {
             "action": "generated_governance_report",
@@ -269,6 +355,10 @@ def _low_risk_log(
 
 
 def _markdown_report(payload: dict[str, Any]) -> str:
+    """将治理报告 payload 渲染为 Markdown 格式。
+
+    包含四个章节：Summary、Findings、Pending Actions、Low-Risk Maintenance Log。
+    """
     lines = [
         "# Argus Governance Report",
         "",

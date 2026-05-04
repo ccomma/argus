@@ -1,3 +1,5 @@
+"""分析领域的 ROI 模型和仪表盘报告数据结构。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -7,6 +9,11 @@ from typing import Any
 
 @dataclass(frozen=True)
 class ContractROI:
+    """工作合约维度的 ROI 指标。
+
+    包含合约总量、状态分布、平均完整性分数、平均问询轮次、
+    变更历史条目数和交付物通过率。
+    """
     total_contracts: int
     by_status: dict[str, int]
     avg_completeness: float
@@ -29,6 +36,10 @@ class ContractROI:
 
 @dataclass(frozen=True)
 class LearningROI:
+    """候选学习维度的 ROI 指标。
+
+    包含学习项总量、类型/作用域分布、平均置信度以及审核状态统计。
+    """
     total_learnings: int
     by_type: dict[str, int]
     by_scope: dict[str, int]
@@ -49,6 +60,10 @@ class LearningROI:
 
 @dataclass(frozen=True)
 class RoleROI:
+    """角色维度的 ROI 指标。
+
+    包含角色总量、交接次数、活跃角色列表和每角色平均能力包数。
+    """
     total_roles: int
     total_handoffs: int
     roles_used_in_handoffs: list[str]
@@ -65,6 +80,7 @@ class RoleROI:
 
 @dataclass(frozen=True)
 class DashboardReport:
+    """仪表盘报告，聚合三大维度的 ROI 指标和文件路径。"""
     markdown_path: Path
     json_path: Path
     contract_roi: ContractROI

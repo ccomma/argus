@@ -1,3 +1,9 @@
+"""策略配置模型：定义风险等级、行动决策和策略规则的核心数据结构。
+
+策略系统是 Argus 安全治理的核心，通过规则匹配机制决定 AI Agent 操作是否需要
+人工确认或直接阻止。StrategyConfig 为完整策略配置，可持久化为 JSON。
+"""
+
 from __future__ import annotations
 
 import enum
@@ -6,12 +12,14 @@ from typing import Any
 
 
 class RiskLevel(enum.Enum):
+    """风险等级：低/中/高。"""
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
 
 
 class ActionDecision(enum.Enum):
+    """策略引擎的决策结果：自动执行 / 请求确认 / 阻止操作。"""
     AUTO = "auto"
     ASK = "ask"
     BLOCK = "block"
@@ -19,6 +27,11 @@ class ActionDecision(enum.Enum):
 
 @dataclass(frozen=True)
 class PolicyRule:
+    """单条策略规则（不可变数据类）。
+
+    定义某一操作类型在特定风险等级下的决策，以及触发该规则的条件。
+    规则的 matches 方法用于在运行时判断当前操作是否匹配此规则。
+    """
     action_type: str
     risk_level: RiskLevel
     decision: ActionDecision
@@ -26,6 +39,14 @@ class PolicyRule:
     conditions: dict[str, Any] = field(default_factory=dict)
 
     def matches(self, action_type: str, context: dict[str, Any] | None = None) -> bool:
+        """判断当前操作是否匹配此规则。
+
+        1. action_type 必须完全匹配（大小写敏感）
+        2. 无 conditions 时匹配所有同类型操作
+        3. context 为 None 时跳过条件检查（宽松匹配）
+        4. 逐条件比对：任一条件不满足则返回 False
+        5. 全部条件满足返回 True
+        """
         if self.action_type != action_type:
             return False
         if not self.conditions:
@@ -40,6 +61,11 @@ class PolicyRule:
 
 @dataclass
 class StrategyConfig:
+    """完整的策略配置。
+
+    包含规则列表、信任源/阻止源名单、自动安装作用域、需确认操作清单。
+    提供 to_dict/from_dict/default 方法用于序列化和默认配置生成。
+    """
     rules: list[PolicyRule] = field(default_factory=list)
     trusted_sources: list[str] = field(default_factory=list)
     blocked_sources: list[str] = field(default_factory=list)
@@ -52,6 +78,7 @@ class StrategyConfig:
     ])
 
     def to_dict(self) -> dict[str, Any]:
+        """序列化为字典，枚举值转为字符串。"""
         return {
             "rules": [
                 {
@@ -71,6 +98,7 @@ class StrategyConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> StrategyConfig:
+        """从字典反序列化，字符串值转换回枚举类型。"""
         rules = [
             PolicyRule(
                 action_type=r["action_type"],
@@ -96,6 +124,12 @@ class StrategyConfig:
 
     @classmethod
     def default(cls) -> StrategyConfig:
+        """生成默认安全策略配置。
+
+        定义 11 条默认规则，覆盖从低风险（资产扫描、报告生成）到高风险
+        （未知来源 MCP 服务器）的操作类型。原则：低风险自动执行，
+        中风险自动/确认，高风险确认/阻止。
+        """
         rules = [
             PolicyRule(
                 action_type="scan_assets",

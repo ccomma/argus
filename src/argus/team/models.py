@@ -1,3 +1,5 @@
+"""团队模型 - TeamMember、Team 数据类及 MemberRole/Permission 枚举，定义成员角色与权限映射。"""
+
 from __future__ import annotations
 
 import enum
@@ -6,6 +8,7 @@ from typing import Any
 
 
 class MemberRole(enum.Enum):
+    """团队成员角色：OWNER > ADMIN > MEMBER > VIEWER，权限逐级递减。"""
     OWNER = "owner"
     ADMIN = "admin"
     MEMBER = "member"
@@ -13,12 +16,14 @@ class MemberRole(enum.Enum):
 
 
 class Permission(enum.Enum):
+    """原子操作权限：READ/WRITE/ADMIN/DELETE，与角色组合形成权限矩阵。"""
     READ = "read"
     WRITE = "write"
     ADMIN = "admin"
     DELETE = "delete"
 
 
+# 角色 -> 权限映射表：上一级角色自动继承下级的所有权限
 ROLE_PERMISSIONS: dict[MemberRole, list[Permission]] = {
     MemberRole.OWNER: [Permission.READ, Permission.WRITE, Permission.ADMIN, Permission.DELETE],
     MemberRole.ADMIN: [Permission.READ, Permission.WRITE, Permission.ADMIN],
@@ -29,6 +34,7 @@ ROLE_PERMISSIONS: dict[MemberRole, list[Permission]] = {
 
 @dataclass(frozen=True)
 class TeamMember:
+    """不可变团队成员对象，含权限检查方法 has_permission()。"""
     member_id: str
     name: str
     role: MemberRole = MemberRole.MEMBER
@@ -57,6 +63,7 @@ class TeamMember:
 
 @dataclass
 class Team:
+    """团队聚合根：包含成员列表、仓库列表、标签，支持增删查成员操作。"""
     team_id: str
     name: str
     description: str = ""
@@ -66,6 +73,7 @@ class Team:
     created_at: int = 0
 
     def add_member(self, member: TeamMember) -> None:
+        """添加或更新成员：同 ID 的旧成员被替换（支持角色升级），否则追加。"""
         existing = [m for m in self.members if m.member_id == member.member_id]
         if existing:
             self.members = [m if m.member_id != member.member_id else member for m in self.members]

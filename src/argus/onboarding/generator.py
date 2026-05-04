@@ -1,3 +1,5 @@
+"""入职包生成器 - 收集活跃规则、能力、推荐包/角色和合约模板，生成 OnboardingPack。"""
+
 from __future__ import annotations
 
 import hashlib
@@ -14,6 +16,13 @@ from argus.team.policy import TeamPolicy
 
 
 class OnboardingGenerator:
+    """入职包生成器：聚合库存规则、活跃能力、团队编目信息，生成 OnboardingPack。
+
+    职责：
+    1. generate 主流程，调用各子收集方法
+    2. 支持保存为 Markdown 和 JSON 双格式
+    """
+
     def __init__(
         self,
         storage: ContractStorage,
@@ -34,6 +43,12 @@ class OnboardingGenerator:
         team_id: str = "",
         policy: TeamPolicy | None = None,
     ) -> OnboardingPack:
+        """主生成流程：收集所有维度的信息后组装 OnboardingPack。
+
+        1. 生成唯一 pack_id（基于 repo + team + 时间戳的 SHA1）
+        2. 收集规则、必需能力、推荐包/角色、合约模板、初始化步骤
+        3. 组装并返回不可变 OnboardingPack
+        """
         now = int(time.time())
         raw = f"{repo_name}{team_id}{now}"
         pack_id = hashlib.sha1(raw.encode()).hexdigest()[:12]
@@ -123,6 +138,7 @@ class OnboardingGenerator:
         return steps
 
     def save(self, pack: OnboardingPack, out_dir: Path) -> Path:
+        """保存入职包到指定目录：生成 .md 和 .json 双文件，返回 Markdown 路径。"""
         out_dir.mkdir(parents=True, exist_ok=True)
         md_path = out_dir / f"{pack.pack_id}.md"
         md_path.write_text(pack.render_markdown(), encoding="utf-8")

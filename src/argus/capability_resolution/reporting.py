@@ -1,3 +1,5 @@
+"""能力解析报告生成器，输出 Markdown 和 JSON 双格式报告。"""
+
 from __future__ import annotations
 
 import json
@@ -7,10 +9,23 @@ from .models import CapabilityResolution, Decision, ResolutionReport
 
 
 class ResolutionReporter:
+    """将能力解析结果导出为可读报告。
+
+    输出两个文件：
+    - capability-resolution-report.md：Markdown 格式，便于人工审阅
+    - capability-resolution-report.json：结构化数据，便于程序消费
+    """
+
     def __init__(self, reports_dir: str | Path) -> None:
         self.reports_dir = Path(reports_dir)
 
     def write(self, resolutions: list[CapabilityResolution]) -> ResolutionReport:
+        """生成双格式解析报告。
+
+        1. 确保输出目录存在
+        2. 汇总解析统计（按决策类型和风险等级分组）
+        3. 生成 Markdown（含每个缺口的决策、风险、证据）和 JSON 文件
+        """
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         markdown_path = self.reports_dir / "capability-resolution-report.md"
         json_path = self.reports_dir / "capability-resolution-report.json"
@@ -27,6 +42,7 @@ class ResolutionReporter:
 
 
 def _summarize(resolutions: list[CapabilityResolution]) -> dict:
+    """按决策类型和风险等级汇总统计。"""
     by_decision: dict[str, int] = {}
     by_risk: dict[str, int] = {}
     for r in resolutions:
@@ -41,6 +57,7 @@ def _summarize(resolutions: list[CapabilityResolution]) -> dict:
 
 
 def _markdown_report(payload: dict) -> str:
+    """将解析负载渲染为 Markdown 格式报告。"""
     lines = [
         "# Argus Capability Resolution Report",
         "",

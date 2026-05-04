@@ -1,3 +1,9 @@
+"""应用服务层入口模块，统一导出所有 Application 类。
+
+Application 层是 Argus 能力操作系统的对外门面，将底层领域对象
+（资产、学习、包、存储等）编排为面向用例的 9 个聚合服务。
+"""
+
 from __future__ import annotations
 
 from argus.application.assets import AssetApplication

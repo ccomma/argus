@@ -1,3 +1,5 @@
+"""团队能力编目 - 聚合团队共享的合约/角色/能力包/模板，支持持久化和统计。"""
+
 from __future__ import annotations
 
 import json
@@ -12,6 +14,7 @@ from argus.storage import ContractStorage
 
 @dataclass
 class TeamCatalog:
+    """团队能力编目：聚合团队共享的合约、角色、能力包、资产和模板引用，不实际存储数据。"""
     team_id: str
     contract_ids: list[str] = field(default_factory=list)
     role_ids: list[str] = field(default_factory=list)
@@ -71,6 +74,13 @@ class TeamCatalog:
 
 
 class TeamCatalogManager:
+    """编目管理器：管理多个团队编目的 JSON 文件存储、加载和统计计算。
+
+    职责：
+    1. save/load/list_all 管理编目文件
+    2. compute_stats 汇总指定团队的合约/角色/包/资产/模板计数
+    """
+
     def __init__(self, store_dir: Path) -> None:
         self.store_dir = Path(store_dir)
 
@@ -96,6 +106,12 @@ class TeamCatalogManager:
         pack_store: CapabilityPackStore,
         role_store: RolePackStore,
     ) -> dict[str, Any]:
+        """统计团队编目覆盖情况：计算各维度（合约/角色/包/资产/模板）的数量。
+
+        1. 加载团队编目
+        2. 过滤全局列表，仅保留编目中引用的条目
+        3. 返回各维度计数
+        """
         catalog = self.load(team_id)
         contracts = storage.list_contracts()
         team_contracts = [c.to_dict() for c in contracts if c.contract_id in catalog.contract_ids]

@@ -1,3 +1,9 @@
+"""受控修改的领域模型：快照、差异、审计记录、修改结果和报告路径。
+
+所有模型均使用 frozen dataclass 保证不可变性，
+ID 通过对 payload 的 SHA1 哈希生成，确保内容寻址。
+"""
+
 from __future__ import annotations
 
 import json
@@ -9,12 +15,18 @@ from typing import Any
 
 
 def _make_id(prefix: str, payload: dict[str, Any]) -> str:
+    """基于 payload 内容生成内容寻址 ID（SHA1 前 16 位）。"""
     digest = sha1(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:16]
     return f"{prefix}-{digest}"
 
 
 @dataclass(frozen=True)
 class ModificationSnapshot:
+    """修改前捕获的状态快照，作为回滚的基准点。
+
+    内容以 JSON 字符串存储（content_json），配合序列化的字典
+    嵌入 ID 生成中，确保相同内容产生相同 ID。
+    """
     id: str
     subject_type: str
     subject_id: str
@@ -35,6 +47,12 @@ class ModificationSnapshot:
         triggered_by: str = "",
         trigger_reason: str = "",
     ) -> ModificationSnapshot:
+        """创建变更前的状态快照。
+
+        1. 将内容字典序列化为稳定 JSON
+        2. 基于关键属性生成内容寻址 ID
+        3. 记录当前时间戳作为 capture_at
+        """
         content_json = json.dumps(content, sort_keys=True, default=str)
         payload = {
             "subject_type": subject_type,
@@ -67,6 +85,10 @@ class ModificationSnapshot:
 
 @dataclass(frozen=True)
 class AssetDiff:
+    """资产或合约变更的结构化差异记录。
+
+    包含 unified diff 行、增删行数统计和变更字段列表。
+    """
     id: str
     subject_type: str
     subject_id: str
@@ -91,6 +113,7 @@ class AssetDiff:
         removed_lines: int,
         changed_fields: list[str],
     ) -> AssetDiff:
+        """基于 diff 数据创建差异对象，ID 由关键字段内容寻址生成。"""
         payload = {
             "subject_type": subject_type,
             "subject_id": subject_id,
@@ -123,6 +146,11 @@ class AssetDiff:
 
 @dataclass(frozen=True)
 class ModificationAuditRecord:
+    """不可变审计日志记录，串联快照、差异和回滚指令。
+
+    每个修改操作（modify/rollback）均生成一条审计记录，
+    rollback_instructions 字段包含人工回滚所需的 CLI 命令。
+    """
     id: str
     timestamp: int
     triggered_by: str
@@ -149,6 +177,7 @@ class ModificationAuditRecord:
         rollback_instructions: str = "",
         outcome: str = "applied",
     ) -> ModificationAuditRecord:
+        """创建审计记录，ID 基于操作属性内容寻址生成。"""
         payload = {
             "triggered_by": triggered_by,
             "trigger_reason": trigger_reason,
@@ -184,6 +213,7 @@ class ModificationAuditRecord:
 
 @dataclass(frozen=True)
 class ModificationResult:
+    """修改操作的结果值对象，关联快照、差异和审计记录 ID。"""
     snapshot_id: str
     diff_id: str = ""
     audit_record_id: str = ""
@@ -200,5 +230,6 @@ class ModificationResult:
 
 @dataclass(frozen=True)
 class ModificationReport:
+    """修改报告的路径引用，包含 Markdown 和 JSON 双格式路径。"""
     markdown_path: Path
     json_path: Path

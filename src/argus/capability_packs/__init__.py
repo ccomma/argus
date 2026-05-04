@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""能力包（Capability Packs）子系统模块。
+
+提供能力包的创建、存储、检查、建议、角色组合和风险评分的完整能力。
+能力包是 Argus 系统中将多个能力资产按用途组合为可执行单元的机制，
+支持版本管理、完整性检查和风险评估。
+"""
+
 from argus.capability_packs.advice import CapabilityPackAdvisor
 from argus.capability_packs.checking import CapabilityPackChecker
 from argus.capability_packs.creation import CapabilityPackCreator, build_manifest

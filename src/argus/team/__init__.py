@@ -1,3 +1,5 @@
+"""团队治理模块 - 定义团队成员/角色/权限模型、团队能力编目和安装/共享策略。"""
+
 from __future__ import annotations
 
 from argus.team.models import MemberRole, Permission, Team, TeamMember

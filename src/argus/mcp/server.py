@@ -1,7 +1,7 @@
-"""Minimal stdio JSON-RPC 2.0 MCP server for Argus.
+"""精简的 stdio JSON-RPC 2.0 MCP 服务器，为 Argus 提供外部查询接口。
 
-Implements the Model Context Protocol (MCP) without third-party dependencies.
-Tools delegate to QueryApplication for all read and write operations.
+基于 Model Context Protocol (MCP) 规范，无第三方依赖，通过标准输入输出与 MCP 客户端通信。
+所有工具调用最终委托给 QueryApplication 执行读写操作。
 """
 
 from __future__ import annotations
@@ -27,13 +27,40 @@ ToolFn = Callable[[dict[str, Any]], dict[str, Any]]
 
 
 class MCPServer:
+    """基于 stdio 的 JSON-RPC 2.0 MCP 服务器。
+
+    职责：
+    1. 通过标准输入接收 MCP 客户端请求，处理后通过标准输出返回 JSON-RPC 响应
+    2. 管理所有工具注册表（tools/list、tools/call）
+    3. 处理 MCP 协议握手（initialize/notifications/initialized）
+    4. 所有业务逻辑委托给 QueryApplication 执行
+
+    支持的工具包括：查询合同/角色/包/学习项/资产、角色检查、能力解析、
+    角色交接记录、事件提交等。
+    """
+
     def __init__(self, store: str | Path = ".argus") -> None:
+        """初始化 MCP 服务器。
+
+        1. 从存储目录构建 ArgusPaths
+        2. 创建 QueryApplication 及其所有依赖（存储、账本、清单等）
+        3. 注册所有 MCP 工具方法
+        """
         self._paths = ArgusPaths.from_store(store)
         self._query_app = self._build_query_app()
         self._tools: dict[str, tuple[str, str, ToolFn]] = {}
         self._register_tools()
 
     def _build_query_app(self) -> QueryApplication:
+        """构建 QueryApplication 及其全部依赖组件。
+
+        1. 初始化 ContractStorage（合同存储）
+        2. 创建 EventLedger（事件账本）和 LearningLedger（学习账本）
+        3. 创建 CapabilityInventory（能力清单）
+        4. 创建 CapabilityPackStore 和 RolePackStore（包存储）
+        5. 创建 HandoffManager（交接管理器）
+        6. 将所有组件注入 QueryApplication
+        """
         storage = ContractStorage(self._paths.root)
         event_ledger = EventLedger(self._paths.events_ledger)
         learning_ledger = LearningLedger(self._paths.candidate_learnings)
@@ -47,6 +74,11 @@ class MCPServer:
         )
 
     def _register_tools(self) -> None:
+        """注册所有 MCP 工具到内部工具表。
+
+        每个工具由一个三元组 (描述, 详细说明, 处理函数) 组成。
+        工具列表以字典方式存储，key 为工具名称，便于 O(1) 查找。
+        """
         app = self._query_app
         self._tools["query_contracts"] = (
             "List work contracts, optionally filtered by status, workspace, or role.",
@@ -138,6 +170,14 @@ status (active, deprecated, archived), agent, or risk (low, medium, high).""",
         )
 
     def serve(self) -> None:
+        """启动 MCP 服务主循环，阻塞读取 stdio 直到输入流关闭。
+
+        1. 逐行读取标准输入
+        2. 跳过空行，尝试解析为 JSON-RPC 请求
+        3. 非法的 JSON 行静默跳过（保持服务健壮性）
+        4. 合法请求通过 _handle 分发处理
+        5. 非空响应写入标准输出并立即刷新（确保客户端及时收到）
+        """
         _log("MCP server starting on stdio")
         for line in sys.stdin:
             line = line.strip()
@@ -153,6 +193,14 @@ status (active, deprecated, archived), agent, or risk (low, medium, high).""",
                 sys.stdout.flush()
 
     def _handle(self, request: dict[str, Any]) -> dict[str, Any] | None:
+        """分发 JSON-RPC 请求到对应的处理方法。
+
+        1. 提取 method 和 id 字段
+        2. 按 method 路由：initialize -> 协议握手、tools/list -> 工具列表、tools/call -> 工具调用
+        3. notifications/initialized 返回 None（通知无需响应）
+        4. 未知 method 返回 -32601 错误码
+        5. 工具执行异常返回 -32603 错误码
+        """
         method = request.get("method", "")
         req_id = request.get("id")
 
@@ -199,8 +247,10 @@ status (active, deprecated, archived), agent, or risk (low, medium, high).""",
 
 
 def _list_result(items: list) -> dict[str, Any]:
+    """将列表包装为标准结果字典，附带总数便于客户端分页。"""
     return {"items": items, "total": len(items)}
 
 
 def _log(msg: str) -> None:
+    """向 stderr 输出日志（避免污染 stdout 上的 JSON-RPC 通信信道）。"""
     print(msg, file=sys.stderr, flush=True)

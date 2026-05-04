@@ -1,3 +1,10 @@
+"""查询应用服务，提供跨领域的只读查询和事件/交接操作。
+
+QueryApplication 是系统中唯一没有副作用查询的门面，
+覆盖合约、角色、能力包、学习项、资产五个领域，
+同时提供事件提交和角色交接等写操作。
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -14,7 +21,11 @@ from argus.storage import ContractStorage
 
 
 class QueryApplication:
-    """Cross-cutting read-only queries across contracts, packs, roles, learnings, and assets."""
+    """跨领域查询和事件管理的应用门面。
+
+    覆盖五大查询维度：合约、角色、能力包、学习项、资产。
+    同时提供事件提交和角色交接的写操作入口。
+    """
 
     def __init__(
         self,
@@ -34,12 +45,18 @@ class QueryApplication:
         self.pack_store = pack_store
         self.role_store = role_store
         self.handoff_mgr = handoff_mgr
+        # 能力解析器用于按需执行缺口分析
         self._resolver = CapabilityResolver(inventory, pack_store)
         self._resolution_reporter = ResolutionReporter(resolution_reports_dir) if resolution_reports_dir else None
 
     def query_contracts(
         self, *, status: str = "", role_id: str = "", contract_id: str = "", workspace: str = ""
     ) -> list[dict[str, Any]]:
+        """按条件查询合约，支持按状态、角色 ID、合约 ID 过滤，附带交接记录。
+
+        1. 获取全部合约并依次应用过滤条件
+        2. 为每个合约附加其关联的角色交接记录（handoffs）
+        """
         contracts = self.storage.list_contracts()
         if contract_id:
             contracts = [c for c in contracts if c.id == contract_id]
@@ -55,6 +72,7 @@ class QueryApplication:
         return results
 
     def query_roles(self, *, role_id: str = "", workspace: str = "") -> list[dict[str, Any]]:
+        """查询角色定义，可按角色 ID 过滤，附带关联的交接记录。"""
         roles = self.role_store.list_latest()
         if role_id:
             roles = [r for r in roles if r.role_id == role_id]
@@ -66,6 +84,7 @@ class QueryApplication:
         return results
 
     def query_packs(self, *, pack_id: str = "") -> list[dict[str, Any]]:
+        """查询能力包，可按包 ID 过滤。"""
         packs = self.pack_store.list_latest()
         if pack_id:
             packs = [p for p in packs if p.pack_id == pack_id]
@@ -80,6 +99,11 @@ class QueryApplication:
         scope: str = "",
         min_confidence: float = 0.0,
     ) -> list[dict[str, Any]]:
+        """查询候选学习项，支持按合约、类型、作用域和最低置信度过滤。
+
+        1. 获取全部学习项
+        2. 依次应用各维度过滤条件（短路式逐层缩减）
+        """
         items = self.learning_ledger.list_items()
         if contract_id:
             items = [i for i in items if contract_id in i.evidence_refs]
@@ -100,6 +124,7 @@ class QueryApplication:
         risk: str = "",
         asset_id: str = "",
     ) -> list[dict[str, Any]]:
+        """查询能力资产，支持按类型、状态、关联代理、风险等级和 ID 过滤。"""
         assets = self.inventory.list_assets()
         if asset_id:
             assets = [a for a in assets if a.id == asset_id]
@@ -114,9 +139,11 @@ class QueryApplication:
         return [a.to_dict() for a in assets]
 
     def check_role(self, role_id: str, version: int | None = None) -> dict[str, Any]:
+        """对指定角色执行完整性检查并返回结果。"""
         return self.role_store.check(role_id, self.inventory.list_assets(), version).to_dict()
 
     def run_resolution(self, gap_name: str, gap_description: str = "") -> dict[str, Any]:
+        """对单个能力缺口执行解析，返回处置建议列表。"""
         resolutions = self._resolver.resolve(
             gaps=[{"name": gap_name, "description": gap_description or gap_name}],
             contract_id="",
@@ -125,6 +152,10 @@ class QueryApplication:
         return [r.to_dict() for r in resolutions]
 
     def submit_event(self, raw: dict[str, Any]) -> str:
+        """提交原始事件到事件账本，返回生成的事件 ID。
+
+        从原始字典中提取标准事件字段，构造 EventRecord 并持久化。
+        """
         record = EventRecord.create(
             source=raw.get("source", "mcp"),
             agent=raw.get("agent", "unknown"),
@@ -140,6 +171,7 @@ class QueryApplication:
         return record.id
 
     def list_events(self) -> list[dict[str, Any]]:
+        """列出所有已记录的事件。"""
         return [e.to_dict() for e in self.event_ledger.list_events()]
 
     def handoff_role(
@@ -151,6 +183,11 @@ class QueryApplication:
         context: dict[str, Any] | None = None,
         handoff_reason: str = "",
     ) -> dict[str, Any]:
+        """创建角色交接记录，将上下文从一个角色传递到另一个角色。
+
+        1. 构造交接记录（包含来源角色、目标角色、上下文和原因）
+        2. 持久化到交接管理器
+        """
         record = self.handoff_mgr.create(
             from_role_id=from_role_id,
             to_role_id=to_role_id,
@@ -161,6 +198,7 @@ class QueryApplication:
         return record.to_dict()
 
     def list_handoffs(self, *, role_id: str = "", contract_id: str = "") -> list[dict[str, Any]]:
+        """列出交接记录，可按角色 ID 或合约 ID 过滤。"""
         if contract_id:
             records = self.handoff_mgr.list_by_contract(contract_id)
         elif role_id:
