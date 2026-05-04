@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from argus.deliverables import DeliverableEvaluation
+from argus.contracts.deliverables import DeliverableEvaluation
 
 
 def deliverable_evaluated_event(evaluation: DeliverableEvaluation) -> dict[str, Any]:

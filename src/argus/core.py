@@ -1,8 +1,15 @@
 from __future__ import annotations
 
-from argus.contracts import ContractSession, QuestionStrategy, WorkContract, WorkContractBuilder
-from argus.deliverables import DeliverableContract, DeliverableEvaluation, DeliverableEvaluator
-from argus.rendering import DeliverableRenderer
+from argus.contracts import (
+    ContractSession,
+    DeliverableContract,
+    DeliverableEvaluation,
+    DeliverableEvaluator,
+    DeliverableRenderer,
+    QuestionStrategy,
+    WorkContract,
+    WorkContractBuilder,
+)
 from argus.storage import ContractStorage
 
 

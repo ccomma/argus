@@ -5,13 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from argus.asset_inventory import CapabilityInventory
-from argus.asset_models import DEPRECATED, CapabilityAsset
+from argus.assets import DEPRECATED, CapabilityAsset, CapabilityInventory
 from argus.capability_packs import CapabilityPackCreator, CapabilityPackStore, RolePackStore
-from argus.contracts import ContractSession, QuestionStrategy, WorkContractBuilder
-from argus.deliverables import DeliverableContract, DeliverableEvaluator
+from argus.contracts import ContractSession, DeliverableContract, DeliverableEvaluator, QuestionStrategy, WorkContractBuilder
 from argus.governance import GovernanceReporter
-from argus.learning import CandidateLearningItem, LearningLedger
+from argus.ledger import CandidateLearningItem, LearningLedger
 from argus.storage import ContractStorage
 
 

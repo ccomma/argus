@@ -5,7 +5,7 @@ import tomllib
 from pathlib import Path
 from typing import Any, Callable
 
-from argus.asset_models import AssetScanProfile, AssetScanResult, CapabilityAsset
+from argus.assets.models import AssetScanProfile, AssetScanResult, CapabilityAsset
 
 
 class CapabilityAssetScanner:

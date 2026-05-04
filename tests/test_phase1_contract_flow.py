@@ -1,9 +1,7 @@
 import tempfile
 import unittest
 
-from argus.contracts import ContractSession, QuestionStrategy, WorkContractBuilder
-from argus.deliverables import DeliverableContract, DeliverableEvaluator
-from argus.rendering import DeliverableRenderer
+from argus.contracts import ContractSession, DeliverableContract, DeliverableEvaluator, DeliverableRenderer, QuestionStrategy, WorkContractBuilder
 from argus.storage import ContractStorage
 
 

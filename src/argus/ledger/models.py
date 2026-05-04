@@ -3,10 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, field
 from hashlib import sha1
-from pathlib import Path
 from typing import Any
-
-from argus.jsonl import AppendOnlyJsonlStore
 
 
 @dataclass(frozen=True)
@@ -78,23 +75,3 @@ class EventRecord:
             execution_evidence=execution_evidence or {},
             risk_metadata=risk_metadata or {},
         )
-
-
-class EventLedger:
-    def __init__(self, path: str | Path) -> None:
-        self.path = Path(path)
-        self._store = AppendOnlyJsonlStore(
-            self.path,
-            serializer=lambda event: event.to_dict(),
-            deserializer=EventRecord.from_dict,
-            identity=lambda event: event.id,
-        )
-
-    def append(self, event: EventRecord) -> bool:
-        return self._store.append(event)
-
-    def append_many(self, events: list[EventRecord]) -> int:
-        return self._store.append_many(events)
-
-    def list_events(self) -> list[EventRecord]:
-        return self._store.list_items()

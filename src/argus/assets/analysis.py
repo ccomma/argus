@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from argus.asset_models import CapabilityAsset
-from argus.asset_text import normalize
+from argus.assets.models import CapabilityAsset
+from argus.assets.text import normalize
 
 
 @dataclass(frozen=True)

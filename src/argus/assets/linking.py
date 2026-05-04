@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from argus.asset_models import AssetLearningLink, CapabilityAsset
-from argus.asset_text import meaningful_tokens
-from argus.learning import CandidateLearningItem
+from argus.assets.models import AssetLearningLink, CapabilityAsset
+from argus.assets.text import meaningful_tokens
+from argus.ledger.learning import CandidateLearningItem
 
 
 class CandidateAssetLinker:

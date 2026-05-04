@@ -12,18 +12,14 @@ from argus.application import (
     GovernanceApplication,
     LearningApplication,
     LedgerApplication,
+    ResolutionApplication,
     RolePackApplication,
 )
-from argus.assets import (
-    CapabilityInventory,
-    AssetScanProfile,
-    local_codex_asset_profile,
-)
+from argus.assets import AssetScanProfile, CapabilityInventory, local_codex_asset_profile
 from argus.capability_packs import CapabilityPackStore, RolePackStore
 from argus.contracts import ContractSession, QuestionStrategy
 from argus.core import ArgusCore
-from argus.ledger import EventLedger
-from argus.learning import LearningLedger
+from argus.ledger import EventLedger, LearningLedger
 from argus.paths import ArgusPaths
 from argus.storage import ContractStorage
 
@@ -46,6 +42,8 @@ def main(argv: list[str] | None = None) -> int:
     roles_subparsers = roles.add_subparsers(dest="roles_command", required=True)
     governance = subparsers.add_parser("governance", help="Governance report commands.")
     governance_subparsers = governance.add_subparsers(dest="governance_command", required=True)
+    resolve = subparsers.add_parser("resolve", help="Capability resolution commands.")
+    resolve_subparsers = resolve.add_subparsers(dest="resolve_command", required=True)
 
     _add_contract_commands(contract_subparsers)
     _add_ledger_commands(ledger_subparsers)
@@ -54,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     _add_pack_commands(packs_subparsers)
     _add_role_commands(roles_subparsers)
     _add_governance_commands(governance_subparsers)
+    _add_resolve_commands(resolve_subparsers)
 
     args = parser.parse_args(argv)
     return _dispatch(parser, args)
@@ -189,6 +188,14 @@ def _add_governance_commands(subparsers: Any) -> None:
     report.add_argument("--store", default=".argus")
 
 
+def _add_resolve_commands(subparsers: Any) -> None:
+    run = subparsers.add_parser("run", help="Run capability resolution against all capability gaps.")
+    run.add_argument("--store", default=".argus")
+
+    report = subparsers.add_parser("report", help="Write a capability resolution report.")
+    report.add_argument("--store", default=".argus")
+
+
 def _add_pack_create_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--store", default=".argus")
     parser.add_argument("--pack-id", required=True)
@@ -239,6 +246,8 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         ("roles", "inspect-pack"): _roles_inspect_pack,
         ("roles", "check-pack"): _roles_check_pack,
         ("governance", "report"): _governance_report,
+        ("resolve", "run"): _resolve_run,
+        ("resolve", "report"): _resolve_report,
     }
     subcommand = getattr(args, f"{args.command}_command")
     try:
@@ -460,6 +469,23 @@ def _governance_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_run(args: argparse.Namespace) -> int:
+    resolutions = _resolution_application(args).resolve_all()
+    _print_json([r.to_dict() for r in resolutions])
+    return 0
+
+
+def _resolve_report(args: argparse.Namespace) -> int:
+    report = _resolution_application(args).write_report()
+    _print_json(
+        {
+            "markdown_path": str(report.markdown_path),
+            "json_path": str(report.json_path),
+        }
+    )
+    return 0
+
+
 def _core(args: argparse.Namespace) -> ArgusCore:
     return ArgusCore(_storage(args))
 
@@ -503,6 +529,19 @@ def _governance_application(args: argparse.Namespace) -> GovernanceApplication:
         pack_store,
         role_store,
         _paths(args).governance_reports_dir,
+    )
+
+
+def _resolution_application(args: argparse.Namespace) -> ResolutionApplication:
+    pack_store = CapabilityPackStore(_paths(args).capability_packs_dir)
+    role_store = RolePackStore(_paths(args).role_packs_dir, pack_store)
+    return ResolutionApplication(
+        _asset_inventory(args),
+        _learning_ledger(args),
+        pack_store,
+        role_store,
+        _storage(args),
+        _paths(args).resolution_reports_dir,
     )
 
 

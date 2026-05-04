@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus.asset_analysis import analyze_assets
-from argus.asset_models import AssetLearningLink, AssetReport, CapabilityAsset
+from argus.assets.analysis import analyze_assets
+from argus.assets.models import AssetLearningLink, AssetReport, CapabilityAsset
 
 
 class AssetReporter:

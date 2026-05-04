@@ -1,48 +1,15 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from argus.asset_analysis import find_potential_duplicates
-from argus.asset_inventory import CapabilityInventory
-from argus.asset_models import ACTIVE, CapabilityAsset
+from argus.assets import ACTIVE, CapabilityAsset, CapabilityInventory, find_potential_duplicates
 from argus.capability_packs import CapabilityPackStore, RolePackStore
-from argus.learning import CandidateLearningItem, LearningLedger
+from argus.ledger import CandidateLearningItem, LearningLedger
 from argus.storage import ContractStorage
 
-
-@dataclass(frozen=True)
-class GovernanceFinding:
-    category: str
-    severity: str
-    subject_id: str
-    summary: str
-    recommended_action: str
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(frozen=True)
-class PendingAction:
-    type: str
-    risk_level: str
-    subject_id: str
-    summary: str
-    requires_confirmation: bool
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(frozen=True)
-class GovernanceReportResult:
-    markdown_path: Path
-    json_path: Path
-    low_risk_log_path: Path
-    pending_actions_path: Path
+from .models import GovernanceFinding, GovernanceReportResult, PendingAction
 
 
 class GovernanceReporter:

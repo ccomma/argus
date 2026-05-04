@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from argus.contracts import WorkContract
+from argus.contracts.models import WorkContract
 
 
 @dataclass(frozen=True)

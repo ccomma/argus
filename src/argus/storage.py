@@ -3,9 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus.contracts import WorkContract
-from argus.deliverables import DeliverableEvaluation
-from argus.evidence import deliverable_evaluated_event, deliverable_rendered_event
+from argus.contracts import DeliverableEvaluation, WorkContract, deliverable_evaluated_event, deliverable_rendered_event
 
 
 class ContractStorage:

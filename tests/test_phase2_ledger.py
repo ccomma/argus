@@ -3,9 +3,16 @@ import unittest
 from pathlib import Path
 
 from argus.core import ArgusCore
-from argus.ingestion import ContractEvidenceIngestor, TranscriptIngestor
-from argus.ledger import EventLedger, EventRecord
-from argus.learning import CandidateLearningItem, LearningExtractor, LearningLedger, LearningReporter
+from argus.ledger import (
+    CandidateLearningItem,
+    ContractEvidenceIngestor,
+    EventLedger,
+    EventRecord,
+    LearningExtractor,
+    LearningLedger,
+    LearningReporter,
+    TranscriptIngestor,
+)
 from argus.storage import ContractStorage
 
 

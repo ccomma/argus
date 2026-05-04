@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus.ledger import EventLedger, EventRecord
+from argus.ledger.models import EventRecord
+from argus.ledger.store import EventLedger
 from argus.storage import ContractStorage
 
 

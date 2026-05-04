@@ -43,3 +43,7 @@ class ArgusPaths:
     @property
     def governance_reports_dir(self) -> Path:
         return self.root / "governance" / "reports"
+
+    @property
+    def resolution_reports_dir(self) -> Path:
+        return self.root / "resolution" / "reports"

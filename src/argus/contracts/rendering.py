@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from argus.contracts import WorkContract
-from argus.deliverables import DeliverableContract
+from argus.contracts.models import WorkContract
+from argus.contracts.deliverables import DeliverableContract
 
 
 class DeliverableRenderer:

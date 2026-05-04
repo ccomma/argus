@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from argus.asset_models import CapabilityAsset
+from argus.assets.models import CapabilityAsset
 
 
 class CapabilityInventory:

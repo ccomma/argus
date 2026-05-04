@@ -5,8 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from argus.asset_inventory import CapabilityInventory
-from argus.asset_models import CapabilityAsset
+from argus.assets import CapabilityAsset, CapabilityInventory
 from argus.capability_packs import (
     CapabilityPackCreator,
     CapabilityPackStore,

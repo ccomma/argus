@@ -6,8 +6,8 @@ from hashlib import sha1
 from pathlib import Path
 from typing import Any, Callable
 
-from argus.jsonl import AppendOnlyJsonlStore
-from argus.ledger import EventRecord
+from argus.ledger.jsonl import AppendOnlyJsonlStore
+from argus.ledger.models import EventRecord
 
 
 @dataclass(frozen=True)
