@@ -47,3 +47,15 @@ class ArgusPaths:
     @property
     def resolution_reports_dir(self) -> Path:
         return self.root / "resolution" / "reports"
+
+    @property
+    def modifications_snapshots_dir(self) -> Path:
+        return self.root / "modifications" / "snapshots"
+
+    @property
+    def modifications_audit_log(self) -> Path:
+        return self.root / "modifications" / "audit.jsonl"
+
+    @property
+    def modifications_reports_dir(self) -> Path:
+        return self.root / "modifications" / "reports"

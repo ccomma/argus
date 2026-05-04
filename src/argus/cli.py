@@ -12,9 +12,11 @@ from argus.application import (
     GovernanceApplication,
     LearningApplication,
     LedgerApplication,
+    ModificationApplication,
     ResolutionApplication,
     RolePackApplication,
 )
+from argus.controlled_modification import AuditLedger, AssetDiffer, RollbackManager, SnapshotManager
 from argus.assets import AssetScanProfile, CapabilityInventory, local_codex_asset_profile
 from argus.capability_packs import CapabilityPackStore, RolePackStore
 from argus.contracts import ContractSession, QuestionStrategy
@@ -44,6 +46,8 @@ def main(argv: list[str] | None = None) -> int:
     governance_subparsers = governance.add_subparsers(dest="governance_command", required=True)
     resolve = subparsers.add_parser("resolve", help="Capability resolution commands.")
     resolve_subparsers = resolve.add_subparsers(dest="resolve_command", required=True)
+    modify = subparsers.add_parser("modify", help="Controlled modification and rollback commands.")
+    modify_subparsers = modify.add_subparsers(dest="modify_command", required=True)
 
     _add_contract_commands(contract_subparsers)
     _add_ledger_commands(ledger_subparsers)
@@ -53,6 +57,7 @@ def main(argv: list[str] | None = None) -> int:
     _add_role_commands(roles_subparsers)
     _add_governance_commands(governance_subparsers)
     _add_resolve_commands(resolve_subparsers)
+    _add_modify_commands(modify_subparsers)
 
     args = parser.parse_args(argv)
     return _dispatch(parser, args)
@@ -196,6 +201,47 @@ def _add_resolve_commands(subparsers: Any) -> None:
     report.add_argument("--store", default=".argus")
 
 
+def _add_modify_commands(subparsers: Any) -> None:
+    preview = subparsers.add_parser("preview", help="Preview an asset modification without applying it.")
+    preview.add_argument("--asset-id", required=True)
+    preview.add_argument("--triggered-by", required=True)
+    preview.add_argument("--trigger-reason", required=True)
+    preview.add_argument("--new-status", default="")
+    preview.add_argument("--store", default=".argus")
+
+    apply_cmd = subparsers.add_parser("apply", help="Apply a controlled modification to an asset.")
+    apply_cmd.add_argument("--asset-id", required=True)
+    apply_cmd.add_argument("--triggered-by", required=True)
+    apply_cmd.add_argument("--trigger-reason", required=True)
+    apply_cmd.add_argument("--new-status", default="")
+    apply_cmd.add_argument("--store", default=".argus")
+
+    contract_preview = subparsers.add_parser("contract-preview", help="Preview a contract modification.")
+    contract_preview.add_argument("--contract-id", required=True)
+    contract_preview.add_argument("--triggered-by", required=True)
+    contract_preview.add_argument("--trigger-reason", required=True)
+    contract_preview.add_argument("--field", action="append", default=[], dest="fields")
+    contract_preview.add_argument("--store", default=".argus")
+
+    contract_apply = subparsers.add_parser("contract-apply", help="Apply a controlled modification to a contract.")
+    contract_apply.add_argument("--contract-id", required=True)
+    contract_apply.add_argument("--triggered-by", required=True)
+    contract_apply.add_argument("--trigger-reason", required=True)
+    contract_apply.add_argument("--field", action="append", default=[], dest="fields")
+    contract_apply.add_argument("--store", default=".argus")
+
+    rollback = subparsers.add_parser("rollback", help="Rollback a previous modification.")
+    rollback.add_argument("--audit-id", required=True)
+    rollback.add_argument("--reason", required=True)
+    rollback.add_argument("--store", default=".argus")
+
+    audit = subparsers.add_parser("audit-log", help="List all modification audit records.")
+    audit.add_argument("--store", default=".argus")
+
+    report = subparsers.add_parser("report", help="Write a modification report.")
+    report.add_argument("--store", default=".argus")
+
+
 def _add_pack_create_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--store", default=".argus")
     parser.add_argument("--pack-id", required=True)
@@ -248,6 +294,13 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         ("governance", "report"): _governance_report,
         ("resolve", "run"): _resolve_run,
         ("resolve", "report"): _resolve_report,
+        ("modify", "preview"): _modify_preview,
+        ("modify", "apply"): _modify_apply,
+        ("modify", "contract-preview"): _modify_contract_preview,
+        ("modify", "contract-apply"): _modify_contract_apply,
+        ("modify", "rollback"): _modify_rollback,
+        ("modify", "audit-log"): _modify_audit_log,
+        ("modify", "report"): _modify_report,
     }
     subcommand = getattr(args, f"{args.command}_command")
     try:
@@ -486,6 +539,101 @@ def _resolve_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _modify_preview(args: argparse.Namespace) -> int:
+    app = _modification_application(args)
+    diff = app.preview_asset_modification(
+        asset_id=args.asset_id,
+        triggered_by=args.triggered_by,
+        trigger_reason=args.trigger_reason,
+        new_status=args.new_status,
+    )
+    if diff is None:
+        _print_json({"error": f"Asset {args.asset_id} not found."})
+        return 1
+    _print_json(diff.to_dict())
+    return 0
+
+
+def _modify_apply(args: argparse.Namespace) -> int:
+    app = _modification_application(args)
+    result = app.apply_asset_modification(
+        asset_id=args.asset_id,
+        triggered_by=args.triggered_by,
+        trigger_reason=args.trigger_reason,
+        new_status=args.new_status,
+    )
+    if result is None:
+        _print_json({"error": f"Asset {args.asset_id} not found."})
+        return 1
+    _print_json(result.to_dict())
+    return 0
+
+
+def _modify_contract_preview(args: argparse.Namespace) -> int:
+    app = _modification_application(args)
+    updates = _parse_field_updates(args.fields)
+    diff = app.preview_contract_modification(
+        contract_id=args.contract_id,
+        triggered_by=args.triggered_by,
+        trigger_reason=args.trigger_reason,
+        field_updates=updates,
+    )
+    if diff is None:
+        _print_json({"error": f"Contract {args.contract_id} not found."})
+        return 1
+    _print_json(diff.to_dict())
+    return 0
+
+
+def _modify_contract_apply(args: argparse.Namespace) -> int:
+    app = _modification_application(args)
+    updates = _parse_field_updates(args.fields)
+    result = app.apply_contract_modification(
+        contract_id=args.contract_id,
+        triggered_by=args.triggered_by,
+        trigger_reason=args.trigger_reason,
+        field_updates=updates,
+    )
+    if result is None:
+        _print_json({"error": f"Contract {args.contract_id} not found."})
+        return 1
+    _print_json(result.to_dict())
+    return 0
+
+
+def _modify_rollback(args: argparse.Namespace) -> int:
+    app = _modification_application(args)
+    result = app.rollback(args.audit_id, args.reason)
+    _print_json(result.to_dict())
+    return 0 if result.outcome == "applied" else 1
+
+
+def _modify_audit_log(args: argparse.Namespace) -> int:
+    records = _modification_application(args).list_audit_log()
+    _print_json([r.to_dict() for r in records])
+    return 0
+
+
+def _modify_report(args: argparse.Namespace) -> int:
+    report = _modification_application(args).write_report()
+    _print_json(
+        {
+            "markdown_path": str(report.markdown_path),
+            "json_path": str(report.json_path),
+        }
+    )
+    return 0
+
+
+def _parse_field_updates(fields: list[str]) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    for f in fields:
+        if "=" in f:
+            key, value = f.split("=", 1)
+            updates[key] = value
+    return updates
+
+
 def _core(args: argparse.Namespace) -> ArgusCore:
     return ArgusCore(_storage(args))
 
@@ -542,6 +690,25 @@ def _resolution_application(args: argparse.Namespace) -> ResolutionApplication:
         role_store,
         _storage(args),
         _paths(args).resolution_reports_dir,
+    )
+
+
+def _modification_application(args: argparse.Namespace) -> ModificationApplication:
+    p = _paths(args)
+    inventory = _asset_inventory(args)
+    contract_storage = _storage(args)
+    snapshot_mgr = SnapshotManager(p.modifications_snapshots_dir)
+    differ = AssetDiffer()
+    audit_ledger = AuditLedger(p.modifications_audit_log)
+    rollback_mgr = RollbackManager(snapshot_mgr, inventory, contract_storage, audit_ledger)
+    return ModificationApplication(
+        inventory,
+        contract_storage,
+        snapshot_mgr,
+        differ,
+        rollback_mgr,
+        audit_ledger,
+        p.modifications_reports_dir,
     )
 
 
